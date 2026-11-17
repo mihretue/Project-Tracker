@@ -2,13 +2,39 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
+  ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { Organization } from './entities/organization.entity';
 import { OrganizationMembership } from './entities/organization-membership.entity';
+import { User } from '../users/entities/user.entity';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { AddMemberDto } from './dto/add-member.dto';
+import { MembershipRole } from '../../common/enums/role.enum';
+
+export interface UserOrganizationView {
+  id: string;
+  name: string;
+  slug: string;
+  role: MembershipRole;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface MemberView {
+  id: string;
+  userId: string;
+  role: MembershipRole;
+  user: {
+    id: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+  };
+  createdAt: Date;
+}
 
 @Injectable()
 export class OrganizationsService {
@@ -17,62 +43,225 @@ export class OrganizationsService {
     private readonly orgRepository: Repository<Organization>,
     @InjectRepository(OrganizationMembership)
     private readonly membershipRepository: Repository<OrganizationMembership>,
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
+    private readonly dataSource: DataSource,
   ) {}
 
-  async findAll(): Promise<Organization[]> {
-    return this.orgRepository.find();
-  }
-
-  async findById(id: string): Promise<Organization> {
-    const org = await this.orgRepository.findOne({
-      where: { id },
-      relations: ['memberships', 'memberships.user', 'projects'],
-    });
-
-    if (!org) {
-      throw new NotFoundException(`Organization with ID ${id} not found`);
-    }
-
-    return org;
-  }
-
-  async create(dto: CreateOrganizationDto): Promise<Organization> {
-    const existing = await this.orgRepository.findOne({
-      where: { slug: dto.slug },
-    });
+  async create(
+    dto: CreateOrganizationDto,
+    creator: User,
+  ): Promise<UserOrganizationView> {
+    const slug = dto.slug.toLowerCase().trim();
+    const existing = await this.orgRepository.findOne({ where: { slug } });
     if (existing) {
-      throw new ConflictException(`Organization with slug '${dto.slug}' already exists`);
+      throw new ConflictException(`Organization with slug '${slug}' already exists`);
     }
 
-    const org = this.orgRepository.create({
-      name: dto.name,
-      slug: dto.slug,
+    // Execute in transaction to ensure atomicity of Organization + Admin Membership
+    return this.dataSource.transaction(async (manager) => {
+      const org = manager.create(Organization, {
+        name: dto.name.trim(),
+        slug,
+      });
+      const savedOrg = await manager.save(org);
+
+      const membership = manager.create(OrganizationMembership, {
+        organizationId: savedOrg.id,
+        userId: creator.id,
+        role: MembershipRole.ADMIN,
+      });
+      await manager.save(membership);
+
+      return {
+        id: savedOrg.id,
+        name: savedOrg.name,
+        slug: savedOrg.slug,
+        role: MembershipRole.ADMIN,
+        createdAt: savedOrg.createdAt,
+        updatedAt: savedOrg.updatedAt,
+      };
     });
-    return this.orgRepository.save(org);
+  }
+
+  async findUserOrganizations(userId: string): Promise<UserOrganizationView[]> {
+    const memberships = await this.membershipRepository.find({
+      where: { userId },
+      relations: ['organization'],
+      order: { createdAt: 'ASC' },
+    });
+
+    return memberships.map((m) => ({
+      id: m.organization.id,
+      name: m.organization.name,
+      slug: m.organization.slug,
+      role: m.role,
+      createdAt: m.organization.createdAt,
+      updatedAt: m.organization.updatedAt,
+    }));
+  }
+
+  async findById(orgId: string, userId: string): Promise<UserOrganizationView> {
+    const membership = await this.membershipRepository.findOne({
+      where: { organizationId: orgId, userId },
+      relations: ['organization'],
+    });
+
+    if (!membership) {
+      throw new ForbiddenException(
+        'Access denied: You do not have membership in this organization',
+      );
+    }
+
+    return {
+      id: membership.organization.id,
+      name: membership.organization.name,
+      slug: membership.organization.slug,
+      role: membership.role,
+      createdAt: membership.organization.createdAt,
+      updatedAt: membership.organization.updatedAt,
+    };
+  }
+
+  async listMembers(orgId: string, userId: string): Promise<MemberView[]> {
+    // Verify caller is a member of this organization
+    const callerMembership = await this.membershipRepository.findOne({
+      where: { organizationId: orgId, userId },
+    });
+
+    if (!callerMembership) {
+      throw new ForbiddenException(
+        'Access denied: You are not a member of this organization',
+      );
+    }
+
+    const memberships = await this.membershipRepository.find({
+      where: { organizationId: orgId },
+      relations: ['user'],
+      order: { createdAt: 'ASC' },
+    });
+
+    return memberships.map((m) => ({
+      id: m.id,
+      userId: m.userId,
+      role: m.role,
+      user: {
+        id: m.user.id,
+        email: m.user.email,
+        firstName: m.user.firstName,
+        lastName: m.user.lastName,
+      },
+      createdAt: m.createdAt,
+    }));
   }
 
   async addMember(
-    organizationId: string,
+    orgId: string,
     dto: AddMemberDto,
-  ): Promise<OrganizationMembership> {
-    const org = await this.orgRepository.findOne({ where: { id: organizationId } });
-    if (!org) {
-      throw new NotFoundException(`Organization with ID ${organizationId} not found`);
-    }
-
-    const existingMembership = await this.membershipRepository.findOne({
-      where: { organizationId, userId: dto.userId },
+    actorId: string,
+  ): Promise<MemberView> {
+    // 1. Verify actor has ADMIN role in this organization
+    const actorMembership = await this.membershipRepository.findOne({
+      where: { organizationId: orgId, userId: actorId },
     });
-    if (existingMembership) {
-      throw new ConflictException('User is already a member of this organization');
+
+    if (!actorMembership || actorMembership.role !== MembershipRole.ADMIN) {
+      throw new ForbiddenException(
+        'Access denied: Only organization admins can add members',
+      );
     }
 
+    // 2. Identify target user by userId or email
+    let targetUser: User | null = null;
+    if (dto.userId) {
+      targetUser = await this.userRepository.findOne({ where: { id: dto.userId } });
+    } else if (dto.email) {
+      targetUser = await this.userRepository.findOne({
+        where: { email: dto.email.toLowerCase().trim() },
+      });
+    }
+
+    if (!targetUser) {
+      throw new NotFoundException('Target user not found');
+    }
+
+    // 3. Prevent duplicate membership
+    const existing = await this.membershipRepository.findOne({
+      where: { organizationId: orgId, userId: targetUser.id },
+    });
+
+    if (existing) {
+      throw new ConflictException(
+        'User is already a member of this organization',
+      );
+    }
+
+    // 4. Create membership
     const membership = this.membershipRepository.create({
-      organizationId,
-      userId: dto.userId,
+      organizationId: orgId,
+      userId: targetUser.id,
       role: dto.role,
     });
 
-    return this.membershipRepository.save(membership);
+    const saved = await this.membershipRepository.save(membership);
+
+    return {
+      id: saved.id,
+      userId: targetUser.id,
+      role: saved.role,
+      user: {
+        id: targetUser.id,
+        email: targetUser.email,
+        firstName: targetUser.firstName,
+        lastName: targetUser.lastName,
+      },
+      createdAt: saved.createdAt,
+    };
+  }
+
+  async updateMemberRole(
+    orgId: string,
+    targetUserId: string,
+    newRole: MembershipRole,
+    actorId: string,
+  ): Promise<MemberView> {
+    // 1. Verify actor is ADMIN
+    const actorMembership = await this.membershipRepository.findOne({
+      where: { organizationId: orgId, userId: actorId },
+    });
+
+    if (!actorMembership || actorMembership.role !== MembershipRole.ADMIN) {
+      throw new ForbiddenException(
+        'Access denied: Only organization admins can modify member roles',
+      );
+    }
+
+    // 2. Verify target membership exists
+    const targetMembership = await this.membershipRepository.findOne({
+      where: { organizationId: orgId, userId: targetUserId },
+      relations: ['user'],
+    });
+
+    if (!targetMembership) {
+      throw new NotFoundException(
+        'Membership not found for this user and organization',
+      );
+    }
+
+    targetMembership.role = newRole;
+    const saved = await this.membershipRepository.save(targetMembership);
+
+    return {
+      id: saved.id,
+      userId: saved.userId,
+      role: saved.role,
+      user: {
+        id: saved.user.id,
+        email: saved.user.email,
+        firstName: saved.user.firstName,
+        lastName: saved.user.lastName,
+      },
+      createdAt: saved.createdAt,
+    };
   }
 }

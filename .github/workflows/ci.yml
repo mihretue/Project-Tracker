@@ -39,14 +39,29 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Run Strict Typechecks
+        run: npm run typecheck
+
       - name: Build Backend (apps/api)
         run: npm run build:api
 
       - name: Build Frontend (apps/web)
         run: npm run build:web
 
-      - name: Run Backend Tests
+      - name: Run Backend Unit Tests
         run: npm run test:api
+
+      - name: Run Migrations on Test Database
+        run: npm run migration:run
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: tenant_project_tracker_test
+
+      - name: Run Cross-Tenant Security E2E Tests
+        run: npm run test:e2e
         env:
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { DatabaseModule } from './database/database.module';
+import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { OrganizationsModule } from './modules/organizations/organizations.module';
 import { ProjectsModule } from './modules/projects/projects.module';
@@ -16,6 +17,7 @@ import { AppService } from './app.service';
       envFilePath: ['.env', '../../.env'],
     }),
     DatabaseModule,
+    AuthModule,
     UsersModule,
     OrganizationsModule,
     ProjectsModule,

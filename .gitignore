@@ -38,3 +38,4 @@ coverage/
 
 # Docker volumes
 .docker-data/
+.pg_data/
