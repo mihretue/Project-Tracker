@@ -1,6 +1,8 @@
 import React, { useState, FormEvent } from 'react';
-import { Link } from 'react-router-dom';
-import { UserPlus, Lock, Mail, User, Building2, AlertCircle } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { UserPlus, Lock, Mail, User, Building2, AlertCircle, Loader2 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import axios from 'axios';
 
 export const RegisterPage: React.FC = () => {
   const [firstName, setFirstName] = useState('');
@@ -8,13 +10,30 @@ export const RegisterPage: React.FC = () => {
   const [organizationName, setOrganizationName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [infoMessage, setInfoMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (e: FormEvent): void => {
+  const { register } = useAuth();
+  const navigate = useNavigate();
+
+  const handleSubmit = async (e: FormEvent): Promise<void> => {
     e.preventDefault();
-    setInfoMessage(
-      `Registration placeholder: user "${firstName} ${lastName}" for organization "${organizationName}". Ready for implementation in subsequent phase.`,
-    );
+    setErrorMessage(null);
+    setIsSubmitting(true);
+
+    try {
+      await register(email, password, firstName, lastName, organizationName);
+      navigate('/dashboard');
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err) && err.response?.data?.message) {
+        const msg = err.response.data.message;
+        setErrorMessage(Array.isArray(msg) ? msg.join(', ') : msg);
+      } else {
+        setErrorMessage('Registration failed. Please check inputs and try again.');
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -40,27 +59,27 @@ export const RegisterPage: React.FC = () => {
             Create an Account
           </h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginTop: '0.25rem' }}>
-            Set up your user profile and initial organization
+            Set up your profile and primary organization
           </p>
         </div>
 
-        {infoMessage && (
+        {errorMessage && (
           <div
             style={{
-              backgroundColor: 'rgba(16, 185, 129, 0.1)',
-              border: '1px solid rgba(16, 185, 129, 0.3)',
+              backgroundColor: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
               borderRadius: 'var(--radius-sm)',
               padding: '0.75rem 1rem',
               marginBottom: '1.25rem',
               display: 'flex',
               alignItems: 'flex-start',
               gap: '0.5rem',
-              color: '#6ee7b7',
+              color: '#f87171',
               fontSize: '0.85rem',
             }}
           >
             <AlertCircle size={16} style={{ marginTop: '0.15rem', flexShrink: 0 }} />
-            <span>{infoMessage}</span>
+            <span>{errorMessage}</span>
           </div>
         )}
 
@@ -79,6 +98,7 @@ export const RegisterPage: React.FC = () => {
                   value={firstName}
                   onChange={(e) => setFirstName(e.target.value)}
                   required
+                  disabled={isSubmitting}
                 />
                 <User
                   size={16}
@@ -105,23 +125,25 @@ export const RegisterPage: React.FC = () => {
                 value={lastName}
                 onChange={(e) => setLastName(e.target.value)}
                 required
+                disabled={isSubmitting}
               />
             </div>
           </div>
 
           <div className="form-group">
             <label className="form-label" htmlFor="orgName">
-              Initial Organization Name
+              Organization Name
             </label>
             <div style={{ position: 'relative' }}>
               <input
                 id="orgName"
                 type="text"
                 className="form-input"
-                placeholder="Addis Tech Solutions"
+                placeholder="Addis Tech Solutions PLC"
                 value={organizationName}
                 onChange={(e) => setOrganizationName(e.target.value)}
                 required
+                disabled={isSubmitting}
               />
               <Building2
                 size={16}
@@ -145,10 +167,11 @@ export const RegisterPage: React.FC = () => {
                 id="register-email"
                 type="email"
                 className="form-input"
-                placeholder="abebe@example.com"
+                placeholder="user@example.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
+                disabled={isSubmitting}
               />
               <Mail
                 size={16}
@@ -177,6 +200,7 @@ export const RegisterPage: React.FC = () => {
                 onChange={(e) => setPassword(e.target.value)}
                 minLength={8}
                 required
+                disabled={isSubmitting}
               />
               <Lock
                 size={16}
@@ -195,9 +219,19 @@ export const RegisterPage: React.FC = () => {
             type="submit"
             className="btn btn-primary"
             style={{ width: '100%', marginTop: '0.75rem', padding: '0.7rem' }}
+            disabled={isSubmitting}
           >
-            <UserPlus size={16} />
-            <span>Create Organization & Account</span>
+            {isSubmitting ? (
+              <>
+                <Loader2 size={16} className="animate-spin" />
+                <span>Creating Organization & Account...</span>
+              </>
+            ) : (
+              <>
+                <UserPlus size={16} />
+                <span>Create Organization & Account</span>
+              </>
+            )}
           </button>
         </form>
 

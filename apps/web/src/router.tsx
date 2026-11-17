@@ -5,6 +5,7 @@ import { RegisterPage } from './pages/RegisterPage';
 import { OrganizationDashboardPage } from './pages/OrganizationDashboardPage';
 import { ProjectDashboardPage } from './pages/ProjectDashboardPage';
 import { NotFoundPage } from './pages/NotFoundPage';
+import { ProtectedRoute } from './components/ProtectedRoute';
 
 export const router = createBrowserRouter([
   {
@@ -16,20 +17,26 @@ export const router = createBrowserRouter([
         element: <Navigate to="/dashboard" replace />,
       },
       {
-        path: 'dashboard',
-        element: <OrganizationDashboardPage />,
-      },
-      {
-        path: 'projects',
-        element: <ProjectDashboardPage />,
-      },
-      {
         path: 'login',
         element: <LoginPage />,
       },
       {
         path: 'register',
         element: <RegisterPage />,
+      },
+      // Protected tenant operations
+      {
+        element: <ProtectedRoute />,
+        children: [
+          {
+            path: 'dashboard',
+            element: <OrganizationDashboardPage />,
+          },
+          {
+            path: 'projects',
+            element: <ProjectDashboardPage />,
+          },
+        ],
       },
       {
         path: '*',
