@@ -9,6 +9,7 @@ import {
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { TaskStatus } from '../../../common/enums/task-status.enum';
+import { TaskPriority } from '../../../common/enums/task-priority.enum';
 
 export class CreateTaskDto {
   @IsString()
@@ -25,6 +26,12 @@ export class CreateTaskDto {
     message: 'Status must be TODO, IN_PROGRESS, REVIEW, or COMPLETED',
   })
   status?: TaskStatus;
+
+  @IsOptional()
+  @IsEnum(TaskPriority, {
+    message: 'Priority must be LOW, MEDIUM, or HIGH',
+  })
+  priority?: TaskPriority;
 
   /**
    * Estimated cost in ETB. Stored as exact decimal string with 2 decimals.

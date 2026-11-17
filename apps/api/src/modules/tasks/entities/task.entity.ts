@@ -9,6 +9,7 @@ import {
   Index,
 } from 'typeorm';
 import { TaskStatus } from '../../../common/enums/task-status.enum';
+import { TaskPriority } from '../../../common/enums/task-priority.enum';
 import { Project } from '../../projects/entities/project.entity';
 import { NumericTransformer } from '../../../common/transformers/numeric.transformer';
 
@@ -29,6 +30,14 @@ export class Task {
     default: TaskStatus.TODO,
   })
   status: TaskStatus;
+
+  @Index()
+  @Column({
+    type: 'enum',
+    enum: TaskPriority,
+    default: TaskPriority.MEDIUM,
+  })
+  priority: TaskPriority;
 
   /**
    * Estimated cost in Ethiopian Birr (ETB).

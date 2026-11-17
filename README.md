@@ -204,6 +204,7 @@ erDiagram
         varchar title "max 250"
         text description "nullable"
         task_status_enum status "TODO | IN_PROGRESS | REVIEW | COMPLETED"
+        task_priority_enum priority "LOW | MEDIUM | HIGH default MEDIUM"
         numeric estimatedCost "numeric(14,2) default 0.00"
         varchar currency "default ETB"
         uuid projectId FK "references projects(id) ON DELETE CASCADE"
@@ -407,10 +408,10 @@ All API endpoints are prefixed with `/api`. Global error formatting is managed b
 | `GET` | `/projects/:id` | Get project by ID | **Yes (JWT)** | Server-side scoped | Member or Admin |
 | `PATCH` | `/projects/:id` | Update project details/budget | **Yes (JWT)** | Server-side scoped | **ADMIN** |
 | `DELETE` | `/projects/:id` | Delete project | **Yes (JWT)** | Server-side scoped | **ADMIN** |
-| `POST` | `/tasks` | Create deliverable task in project | **Yes (JWT)** | Server-side scoped | Member or Admin |
-| `GET` | `/tasks?projectId=:id` | List tasks in project | **Yes (JWT)** | Server-side scoped | Member or Admin |
+| `POST` | `/tasks` | Create deliverable task in project (priority: LOW, MEDIUM, HIGH) | **Yes (JWT)** | Server-side scoped | Member or Admin |
+| `GET` | `/tasks?projectId=:id[&priority=:priority]` | List tasks in project (optional priority filter) | **Yes (JWT)** | Server-side scoped | Member or Admin |
 | `GET` | `/tasks/:id` | Get task by ID | **Yes (JWT)** | Server-side scoped | Member or Admin |
-| `PATCH` | `/tasks/:id` | Update task status/cost | **Yes (JWT)** | Server-side scoped | Member or Admin |
+| `PATCH` | `/tasks/:id` | Update task status, priority, or cost | **Yes (JWT)** | Server-side scoped | Member or Admin |
 | `DELETE` | `/tasks/:id` | Delete task | **Yes (JWT)** | Server-side scoped | **ADMIN** |
 
 ---
@@ -489,7 +490,56 @@ All API endpoints are prefixed with `/api`. Global error formatting is managed b
 }
 ```
 
-#### 4. Standardized Error Response (`AllExceptionsFilter`)
+#### 4. Create Task with Priority (`POST /api/tasks`)
+**Header**: `Authorization: Bearer <token>`  
+**Request**:
+```json
+{
+  "title": "Core Database Indexing & Optimizations",
+  "description": "Composite indexes on high-throughput query paths",
+  "status": "IN_PROGRESS",
+  "priority": "HIGH",
+  "estimatedCost": "35000.00",
+  "projectId": "7b134d19-9c12-4a7b-b890-410a7c491de2"
+}
+```
+**Response (`201 Created`)**:
+```json
+{
+  "id": "2d94e130-4c12-4a7b-b890-510a7c491de8",
+  "title": "Core Database Indexing & Optimizations",
+  "description": "Composite indexes on high-throughput query paths",
+  "status": "IN_PROGRESS",
+  "priority": "HIGH",
+  "estimatedCost": "35000.00",
+  "currency": "ETB",
+  "projectId": "7b134d19-9c12-4a7b-b890-410a7c491de2",
+  "createdAt": "2026-11-17T06:48:00.000Z",
+  "updatedAt": "2026-11-17T06:48:00.000Z"
+}
+```
+
+#### 5. Filter Tasks by Priority (`GET /api/tasks?projectId=:id&priority=HIGH`)
+**Header**: `Authorization: Bearer <token>`  
+**Response (`200 OK`)**:
+```json
+[
+  {
+    "id": "2d94e130-4c12-4a7b-b890-510a7c491de8",
+    "title": "Core Database Indexing & Optimizations",
+    "description": "Composite indexes on high-throughput query paths",
+    "status": "IN_PROGRESS",
+    "priority": "HIGH",
+    "estimatedCost": "35000.00",
+    "currency": "ETB",
+    "projectId": "7b134d19-9c12-4a7b-b890-410a7c491de2",
+    "createdAt": "2026-11-17T06:48:00.000Z",
+    "updatedAt": "2026-11-17T06:48:00.000Z"
+  }
+]
+```
+
+#### 6. Standardized Error Response (`AllExceptionsFilter`)
 **Response (`403 Forbidden`)**:
 ```json
 {
@@ -641,22 +691,29 @@ npm run migration:revert
 npm run migration:generate -- apps/api/src/database/migrations/YourMigrationName
 ```
 
-### Current Migration: `1700000000000-InitialSchema.ts`
+### Implemented Migrations
+
+#### 1. `1700000000000-InitialSchema.ts`
 - Creates enums `membership_role_enum` (`ADMIN`, `MEMBER`) and `task_status_enum` (`TODO`, `IN_PROGRESS`, `REVIEW`, `COMPLETED`).
 - Creates tables `users`, `organizations`, `organization_memberships`, `projects`, and `tasks`.
 - Configures foreign keys with `ON DELETE CASCADE` and unique index constraints.
 
-### Planned Task Priority Migration (Upcoming Phase)
-The upcoming migration for task prioritization will introduce:
-1. **Enum Addition**: `CREATE TYPE "task_priority_enum" AS ENUM ('LOW', 'MEDIUM', 'HIGH');`.
-2. **Column Addition**: `ALTER TABLE "tasks" ADD COLUMN "priority" "task_priority_enum" NOT NULL DEFAULT 'MEDIUM';`.
-3. **Data Backfill**: Existing task records are populated with `'MEDIUM'` as default.
-4. **Reversible Rollback**:
-   ```sql
-   ALTER TABLE "tasks" DROP COLUMN IF EXISTS "priority";
-   DROP TYPE IF EXISTS "task_priority_enum";
-   ```
-*(Note: Documented as planned; will be implemented in subsequent phases.)*
+#### 2. `1700000001000-AddTaskPriority.ts` (Phase 3 - Implemented & Verified)
+- **Enum Addition**: `CREATE TYPE "task_priority_enum" AS ENUM ('LOW', 'MEDIUM', 'HIGH');`.
+- **Column Addition & Backfill**:
+  ```sql
+  ALTER TABLE "tasks" ADD COLUMN "priority" "task_priority_enum" NOT NULL DEFAULT 'MEDIUM';
+  ```
+  In PostgreSQL, adding a column with a `DEFAULT` constraint automatically backfills all existing task rows to `'MEDIUM'` with zero table rewrite downtime, while guaranteeing newly created tasks default to `'MEDIUM'` if priority is omitted.
+- **Index Creation**: `CREATE INDEX "IDX_tasks_priority" ON "tasks" ("priority");` for fast query filtering.
+- **Reversible Rollback (`down`)**:
+  ```sql
+  DROP INDEX IF EXISTS "IDX_tasks_priority";
+  ALTER TABLE "tasks" DROP COLUMN IF EXISTS "priority";
+  DROP TYPE IF EXISTS "task_priority_enum";
+  ```
+- **Rollback Data Loss Implications**:
+  Executing `migration:revert` safely removes the `priority` column and type definition. While individual task priority classifications (`LOW`, `MEDIUM`, `HIGH`) are dropped, **all underlying tasks, titles, descriptions, statuses, ETB estimated costs, timestamps, and relationships remain 100% intact**. Existing tasks are neither deleted nor recreated.
 
 ---
 
@@ -854,6 +911,5 @@ Evaluators can follow this step-by-step walkthrough to test the multi-tenant pla
 ## 20. Known Limitations
 
 The following items are deferred to upcoming phases:
-- **Task Prioritization**: Task priority enum (`LOW`, `MEDIUM`, `HIGH`) and filtering will be added via migration in the next phase.
 - **Refresh Token Rotation**: Single-token JWT architecture is active; refresh-token rotation is planned for deployment hardening.
 - **Interactive Kanban Drag-and-Drop**: Frontend task status is currently managed via form selectors rather than a drag-and-drop board.

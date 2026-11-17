@@ -11,6 +11,7 @@ import { OrganizationMembership } from '../organizations/entities/organization-m
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { TaskStatus } from '../../common/enums/task-status.enum';
+import { TaskPriority } from '../../common/enums/task-priority.enum';
 import { MembershipRole } from '../../common/enums/role.enum';
 import Decimal from 'decimal.js';
 
@@ -53,6 +54,7 @@ export class TasksService {
       title: dto.title.trim(),
       description: dto.description?.trim() || null,
       status: dto.status || TaskStatus.TODO,
+      priority: dto.priority || TaskPriority.MEDIUM,
       estimatedCost: formattedCost,
       currency: 'ETB',
       projectId: dto.projectId,
@@ -61,7 +63,11 @@ export class TasksService {
     return this.taskRepository.save(task);
   }
 
-  async findByProject(projectId: string, userId: string): Promise<Task[]> {
+  async findByProject(
+    projectId: string,
+    userId: string,
+    priority?: TaskPriority,
+  ): Promise<Task[]> {
     const project = await this.projectRepository.findOne({
       where: { id: projectId },
     });
@@ -80,8 +86,15 @@ export class TasksService {
       );
     }
 
+    const whereClause: { projectId: string; priority?: TaskPriority } = {
+      projectId,
+    };
+    if (priority) {
+      whereClause.priority = priority;
+    }
+
     return this.taskRepository.find({
-      where: { projectId },
+      where: whereClause,
       order: { createdAt: 'ASC' },
     });
   }
@@ -138,6 +151,9 @@ export class TasksService {
     }
     if (dto.status !== undefined) {
       task.status = dto.status;
+    }
+    if (dto.priority !== undefined) {
+      task.priority = dto.priority;
     }
     if (dto.estimatedCost !== undefined) {
       task.estimatedCost = new Decimal(dto.estimatedCost).toFixed(2);

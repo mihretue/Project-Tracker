@@ -15,6 +15,7 @@ import { TasksService } from './tasks.service';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { Task } from './entities/task.entity';
+import { TaskPriority } from '../../common/enums/task-priority.enum';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User } from '../users/entities/user.entity';
@@ -35,12 +36,13 @@ export class TasksController {
   @Get()
   async findByProject(
     @Query('projectId') projectId: string | undefined,
+    @Query('priority') priority: TaskPriority | undefined,
     @CurrentUser() user: User,
   ): Promise<Task[]> {
     if (!projectId) {
       throw new BadRequestException('Query parameter "projectId" is required');
     }
-    return this.tasksService.findByProject(projectId, user.id);
+    return this.tasksService.findByProject(projectId, user.id, priority);
   }
 
   @Get(':id')

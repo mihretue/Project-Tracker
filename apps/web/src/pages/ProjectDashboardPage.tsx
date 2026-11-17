@@ -10,6 +10,8 @@ import {
   Loader2,
   FolderKanban,
   CheckCircle2,
+  Filter,
+  Edit2,
 } from 'lucide-react';
 import { StatCard } from '../components/StatCard';
 import { useAuth } from '../context/AuthContext';
@@ -30,6 +32,7 @@ interface TaskItem {
   title: string;
   description: string | null;
   status: 'TODO' | 'IN_PROGRESS' | 'REVIEW' | 'COMPLETED';
+  priority: 'LOW' | 'MEDIUM' | 'HIGH';
   estimatedCost: string;
   currency: string;
   projectId: string;
@@ -42,6 +45,7 @@ export const ProjectDashboardPage: React.FC = () => {
   const [projects, setProjects] = useState<ProjectItem[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [priorityFilter, setPriorityFilter] = useState<'ALL' | 'LOW' | 'MEDIUM' | 'HIGH'>('ALL');
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -50,7 +54,17 @@ export const ProjectDashboardPage: React.FC = () => {
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskDesc, setNewTaskDesc] = useState('');
   const [newTaskStatus, setNewTaskStatus] = useState<'TODO' | 'IN_PROGRESS' | 'REVIEW' | 'COMPLETED'>('TODO');
+  const [newTaskPriority, setNewTaskPriority] = useState<'LOW' | 'MEDIUM' | 'HIGH'>('MEDIUM');
   const [newTaskCost, setNewTaskCost] = useState('15000.00');
+
+  // Edit task modal state
+  const [editingTask, setEditingTask] = useState<TaskItem | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDesc, setEditDesc] = useState('');
+  const [editStatus, setEditStatus] = useState<'TODO' | 'IN_PROGRESS' | 'REVIEW' | 'COMPLETED'>('TODO');
+  const [editPriority, setEditPriority] = useState<'LOW' | 'MEDIUM' | 'HIGH'>('MEDIUM');
+  const [editCost, setEditCost] = useState('');
+
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Load projects for current organization
@@ -87,7 +101,7 @@ export const ProjectDashboardPage: React.FC = () => {
     void loadProjects();
   }, [currentOrg?.id]);
 
-  // Load tasks when selected project changes
+  // Load tasks when selected project or priority filter changes
   useEffect(() => {
     const loadTasks = async (): Promise<void> => {
       if (!selectedProjectId) {
@@ -95,7 +109,8 @@ export const ProjectDashboardPage: React.FC = () => {
         return;
       }
       try {
-        const res = await api.get<TaskItem[]>(`/tasks?projectId=${selectedProjectId}`);
+        const filterQuery = priorityFilter !== 'ALL' ? `&priority=${priorityFilter}` : '';
+        const res = await api.get<TaskItem[]>(`/tasks?projectId=${selectedProjectId}${filterQuery}`);
         setTasks(res.data);
       } catch (err: unknown) {
         if (axios.isAxiosError(err) && err.response?.data?.message) {
@@ -105,7 +120,7 @@ export const ProjectDashboardPage: React.FC = () => {
     };
 
     void loadTasks();
-  }, [selectedProjectId]);
+  }, [selectedProjectId, priorityFilter]);
 
   const handleCreateTask = async (e: FormEvent): Promise<void> => {
     e.preventDefault();
@@ -118,6 +133,7 @@ export const ProjectDashboardPage: React.FC = () => {
         title: newTaskTitle,
         description: newTaskDesc,
         status: newTaskStatus,
+        priority: newTaskPriority,
         estimatedCost: newTaskCost,
         projectId: selectedProjectId,
       });
@@ -125,16 +141,60 @@ export const ProjectDashboardPage: React.FC = () => {
       setShowAddTask(false);
       setNewTaskTitle('');
       setNewTaskDesc('');
+      setNewTaskStatus('TODO');
+      setNewTaskPriority('MEDIUM');
       setNewTaskCost('15000.00');
 
       // Refresh tasks
-      const res = await api.get<TaskItem[]>(`/tasks?projectId=${selectedProjectId}`);
+      const filterQuery = priorityFilter !== 'ALL' ? `&priority=${priorityFilter}` : '';
+      const res = await api.get<TaskItem[]>(`/tasks?projectId=${selectedProjectId}${filterQuery}`);
       setTasks(res.data);
     } catch (err: unknown) {
       if (axios.isAxiosError(err) && err.response?.data?.message) {
         setErrorMsg(String(err.response.data.message));
       } else {
         setErrorMsg('Failed to create task.');
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleOpenEdit = (task: TaskItem): void => {
+    setEditingTask(task);
+    setEditTitle(task.title);
+    setEditDesc(task.description || '');
+    setEditStatus(task.status);
+    setEditPriority(task.priority);
+    setEditCost(task.estimatedCost);
+  };
+
+  const handleUpdateTask = async (e: FormEvent): Promise<void> => {
+    e.preventDefault();
+    if (!editingTask || !selectedProjectId) return;
+    setIsSubmitting(true);
+    setErrorMsg(null);
+
+    try {
+      await api.patch(`/tasks/${editingTask.id}`, {
+        title: editTitle,
+        description: editDesc,
+        status: editStatus,
+        priority: editPriority,
+        estimatedCost: editCost,
+      });
+
+      setEditingTask(null);
+
+      // Refresh tasks
+      const filterQuery = priorityFilter !== 'ALL' ? `&priority=${priorityFilter}` : '';
+      const res = await api.get<TaskItem[]>(`/tasks?projectId=${selectedProjectId}${filterQuery}`);
+      setTasks(res.data);
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err) && err.response?.data?.message) {
+        setErrorMsg(String(err.response.data.message));
+      } else {
+        setErrorMsg('Failed to update task.');
       }
     } finally {
       setIsSubmitting(false);
@@ -171,6 +231,18 @@ export const ProjectDashboardPage: React.FC = () => {
     }
   };
 
+  const getPriorityBadge = (priority: TaskItem['priority']): JSX.Element => {
+    switch (priority) {
+      case 'HIGH':
+        return <span className="badge badge-priority-high">HIGH</span>;
+      case 'LOW':
+        return <span className="badge badge-priority-low">LOW</span>;
+      case 'MEDIUM':
+      default:
+        return <span className="badge badge-priority-medium">MEDIUM</span>;
+    }
+  };
+
   if (!currentOrg) {
     return (
       <div style={{ textAlign: 'center', padding: '3rem 1rem' }}>
@@ -194,7 +266,7 @@ export const ProjectDashboardPage: React.FC = () => {
             {selectedProject ? selectedProject.name : 'Projects & Tasks'}
           </h1>
           <p className="page-subtitle">
-            {selectedProject?.description || 'Track deliverables, ETB budgets, and estimated task costs.'}
+            {selectedProject?.description || 'Track deliverables, ETB budgets, priorities, and estimated costs.'}
           </p>
         </div>
 
@@ -296,7 +368,16 @@ export const ProjectDashboardPage: React.FC = () => {
 
           {/* Tasks Table */}
           <div style={{ marginTop: '2.5rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: '1rem',
+                marginBottom: '1rem',
+              }}
+            >
               <div>
                 <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#ffffff' }}>
                   Project Tasks
@@ -305,17 +386,39 @@ export const ProjectDashboardPage: React.FC = () => {
                   Deliverables scoped strictly to {selectedProject.name}
                 </p>
               </div>
-              <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                {tasks.length} total tasks
-              </span>
+
+              {/* Priority Filter Controls */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--text-muted)' }}>
+                  <Filter size={16} />
+                  <span style={{ fontSize: '0.85rem', fontWeight: 500 }}>Priority Filter:</span>
+                </div>
+                <select
+                  className="form-input"
+                  style={{ padding: '0.4rem 0.75rem', fontSize: '0.85rem', width: 'auto' }}
+                  value={priorityFilter}
+                  onChange={(e) => setPriorityFilter(e.target.value as 'ALL' | 'LOW' | 'MEDIUM' | 'HIGH')}
+                >
+                  <option value="ALL">All Priorities</option>
+                  <option value="HIGH">HIGH Priority</option>
+                  <option value="MEDIUM">MEDIUM Priority</option>
+                  <option value="LOW">LOW Priority</option>
+                </select>
+
+                <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                  ({tasks.length} {tasks.length === 1 ? 'task' : 'tasks'})
+                </span>
+              </div>
             </div>
 
             {tasks.length === 0 ? (
               <div className="card" style={{ textAlign: 'center', padding: '2.5rem' }}>
                 <CheckCircle2 size={36} style={{ margin: '0 auto 0.75rem auto', color: 'var(--text-muted)' }} />
-                <h3>No tasks created for this project yet</h3>
+                <h3>No tasks match the selected criteria</h3>
                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: '0.25rem' }}>
-                  Click "Add Task" to record an estimated ETB deliverable.
+                  {priorityFilter !== 'ALL'
+                    ? `No tasks found with priority "${priorityFilter}". Try selecting "All Priorities".`
+                    : 'Click "Add Task" to record an estimated ETB deliverable.'}
                 </p>
               </div>
             ) : (
@@ -324,8 +427,10 @@ export const ProjectDashboardPage: React.FC = () => {
                   <thead>
                     <tr>
                       <th>Task Title</th>
+                      <th>Priority</th>
                       <th>Status</th>
                       <th>Estimated Cost (ETB)</th>
+                      <th>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -339,11 +444,23 @@ export const ProjectDashboardPage: React.FC = () => {
                             </div>
                           )}
                         </td>
+                        <td>{getPriorityBadge(task.priority)}</td>
                         <td>{getStatusBadge(task.status)}</td>
                         <td>
                           <span className="badge badge-etb">
                             {formatETB(parseFloat(task.estimatedCost || '0'))}
                           </span>
+                        </td>
+                        <td>
+                          <button
+                            onClick={() => handleOpenEdit(task)}
+                            className="btn btn-outline"
+                            style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem', gap: '0.3rem' }}
+                            title="Edit Task & Priority"
+                          >
+                            <Edit2 size={12} />
+                            <span>Edit</span>
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -372,6 +489,7 @@ export const ProjectDashboardPage: React.FC = () => {
                   required
                 />
               </div>
+
               <div className="form-group">
                 <label className="form-label">Description</label>
                 <textarea
@@ -382,21 +500,40 @@ export const ProjectDashboardPage: React.FC = () => {
                   onChange={(e) => setNewTaskDesc(e.target.value)}
                 />
               </div>
-              <div className="form-group">
-                <label className="form-label">Status</label>
-                <select
-                  className="form-input"
-                  value={newTaskStatus}
-                  onChange={(e) =>
-                    setNewTaskStatus(e.target.value as 'TODO' | 'IN_PROGRESS' | 'REVIEW' | 'COMPLETED')
-                  }
-                >
-                  <option value="TODO">TODO</option>
-                  <option value="IN_PROGRESS">IN_PROGRESS</option>
-                  <option value="REVIEW">REVIEW</option>
-                  <option value="COMPLETED">COMPLETED</option>
-                </select>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <div className="form-group">
+                  <label className="form-label">Priority</label>
+                  <select
+                    className="form-input"
+                    value={newTaskPriority}
+                    onChange={(e) =>
+                      setNewTaskPriority(e.target.value as 'LOW' | 'MEDIUM' | 'HIGH')
+                    }
+                  >
+                    <option value="LOW">LOW</option>
+                    <option value="MEDIUM">MEDIUM (Default)</option>
+                    <option value="HIGH">HIGH</option>
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Status</label>
+                  <select
+                    className="form-input"
+                    value={newTaskStatus}
+                    onChange={(e) =>
+                      setNewTaskStatus(e.target.value as 'TODO' | 'IN_PROGRESS' | 'REVIEW' | 'COMPLETED')
+                    }
+                  >
+                    <option value="TODO">TODO</option>
+                    <option value="IN_PROGRESS">IN_PROGRESS</option>
+                    <option value="REVIEW">REVIEW</option>
+                    <option value="COMPLETED">COMPLETED</option>
+                  </select>
+                </div>
               </div>
+
               <div className="form-group">
                 <label className="form-label">Estimated ETB Cost (Exact 2-decimal format)</label>
                 <input
@@ -408,6 +545,7 @@ export const ProjectDashboardPage: React.FC = () => {
                   required
                 />
               </div>
+
               <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.25rem' }}>
                 <button
                   type="button"
@@ -419,6 +557,95 @@ export const ProjectDashboardPage: React.FC = () => {
                 </button>
                 <button type="submit" className="btn btn-primary" style={{ flex: 1 }} disabled={isSubmitting}>
                   {isSubmitting ? 'Saving...' : 'Add Task'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Edit Task */}
+      {editingTask && (
+        <div className="auth-wrapper" style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 100 }}>
+          <div className="auth-card" style={{ maxWidth: 480 }}>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '1rem' }}>Edit Task Deliverable</h2>
+            <form onSubmit={handleUpdateTask}>
+              <div className="form-group">
+                <label className="form-label">Task Title</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Description</label>
+                <textarea
+                  className="form-input"
+                  rows={3}
+                  value={editDesc}
+                  onChange={(e) => setEditDesc(e.target.value)}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <div className="form-group">
+                  <label className="form-label">Priority</label>
+                  <select
+                    className="form-input"
+                    value={editPriority}
+                    onChange={(e) =>
+                      setEditPriority(e.target.value as 'LOW' | 'MEDIUM' | 'HIGH')
+                    }
+                  >
+                    <option value="LOW">LOW</option>
+                    <option value="MEDIUM">MEDIUM</option>
+                    <option value="HIGH">HIGH</option>
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Status</label>
+                  <select
+                    className="form-input"
+                    value={editStatus}
+                    onChange={(e) =>
+                      setEditStatus(e.target.value as 'TODO' | 'IN_PROGRESS' | 'REVIEW' | 'COMPLETED')
+                    }
+                  >
+                    <option value="TODO">TODO</option>
+                    <option value="IN_PROGRESS">IN_PROGRESS</option>
+                    <option value="REVIEW">REVIEW</option>
+                    <option value="COMPLETED">COMPLETED</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Estimated ETB Cost</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={editCost}
+                  onChange={(e) => setEditCost(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.25rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setEditingTask(null)}
+                  className="btn btn-outline"
+                  style={{ flex: 1 }}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary" style={{ flex: 1 }} disabled={isSubmitting}>
+                  {isSubmitting ? 'Updating...' : 'Save Changes'}
                 </button>
               </div>
             </form>
