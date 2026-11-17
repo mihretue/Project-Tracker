@@ -387,6 +387,8 @@ flowchart TD
 
 All API endpoints are prefixed with `/api`. Global error formatting is managed by `AllExceptionsFilter`.
 
+> **Interactive Swagger UI**: When running the API server, the complete interactive OpenAPI documentation is available at **`http://localhost:3000/api/docs`**. You can authenticate directly in the UI using the **Authorize** button with your JWT Bearer token.
+
 ### Endpoint Reference Table
 
 | Method | Endpoint | Description | Auth Required | Tenant Check | Role Required |

@@ -54,6 +54,13 @@ async function bootstrap(): Promise<void> {
       },
       'JWT-auth',
     )
+    .addTag('Authentication', 'User registration, login, and profile retrieval')
+    .addTag('Organizations', 'Tenant management, member invitations, and role assignments')
+    .addTag('Projects', 'Organization-scoped projects and ETB budget tracking')
+    .addTag('Tasks', 'Deliverable tasks with status, priority, and ETB cost estimation')
+    .addTag('Users', 'User lookup and system user accounts')
+    .addTag('Health', 'System uptime and database connectivity health checks')
+    .addTag('System', 'Application metadata and system info')
     .build();
 
   const document = SwaggerModule.createDocument(app, swaggerConfig);

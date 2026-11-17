@@ -1,4 +1,5 @@
 import { Controller, Get } from '@nestjs/common';
+import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { DataSource } from 'typeorm';
 
 export interface HealthStatus {
@@ -9,10 +10,12 @@ export interface HealthStatus {
   version: string;
 }
 
+@ApiTags('Health')
 @Controller('health')
 export class HealthController {
   constructor(private readonly dataSource: DataSource) {}
 
+  @ApiOperation({ summary: 'Check API and database health status' })
   @Get()
   getHealth(): HealthStatus {
     const isDbConnected = this.dataSource.isInitialized;
