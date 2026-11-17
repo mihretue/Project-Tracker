@@ -26,7 +26,8 @@ export class Project {
 
   /**
    * Budget in Ethiopian Birr (ETB).
-   * Stored as PostgreSQL numeric(14, 2) to preserve exact decimal precision.
+   * Stored as PostgreSQL numeric(14, 2) and represented as an exact decimal string
+   * to avoid IEEE 754 binary floating-point precision loss.
    */
   @Column({
     type: 'numeric',
@@ -35,7 +36,7 @@ export class Project {
     default: '0.00',
     transformer: new NumericTransformer(),
   })
-  budget: number;
+  budget: string;
 
   @Column({ type: 'varchar', length: 3, default: 'ETB' })
   currency: string;

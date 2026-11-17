@@ -1,18 +1,19 @@
 import {
   IsEnum,
   IsNotEmpty,
-  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
-  Min,
+  Matches,
+  MaxLength,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform } from 'class-transformer';
 import { TaskStatus } from '../../../common/enums/task-status.enum';
 
 export class CreateTaskDto {
   @IsString()
   @IsNotEmpty({ message: 'Task title is required' })
+  @MaxLength(250)
   title: string;
 
   @IsOptional()
@@ -25,13 +26,15 @@ export class CreateTaskDto {
   })
   status?: TaskStatus;
 
-  @Type(() => Number)
-  @IsNumber(
-    { maxDecimalPlaces: 2 },
-    { message: 'Estimated cost must be a valid number with at most 2 decimal places' },
-  )
-  @Min(0, { message: 'Estimated cost cannot be negative' })
-  estimatedCost: number;
+  /**
+   * Estimated cost in ETB. Stored as exact decimal string with 2 decimals.
+   */
+  @Transform(({ value }) => (typeof value === 'number' ? value.toFixed(2) : String(value)))
+  @IsString()
+  @Matches(/^\d+(\.\d{1,2})?$/, {
+    message: 'Estimated cost must be a non-negative decimal with up to 2 decimal places (e.g. 45000.00)',
+  })
+  estimatedCost: string;
 
   @IsUUID('4', { message: 'projectId must be a valid UUID' })
   projectId: string;

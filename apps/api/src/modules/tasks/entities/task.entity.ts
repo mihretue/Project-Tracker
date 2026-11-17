@@ -32,7 +32,8 @@ export class Task {
 
   /**
    * Estimated cost in Ethiopian Birr (ETB).
-   * Stored as PostgreSQL numeric(14, 2) to preserve exact decimal precision.
+   * Stored as PostgreSQL numeric(14, 2) and represented as an exact decimal string
+   * to eliminate floating-point rounding errors.
    */
   @Column({
     type: 'numeric',
@@ -41,7 +42,7 @@ export class Task {
     default: '0.00',
     transformer: new NumericTransformer(),
   })
-  estimatedCost: number;
+  estimatedCost: string;
 
   @Column({ type: 'varchar', length: 3, default: 'ETB' })
   currency: string;

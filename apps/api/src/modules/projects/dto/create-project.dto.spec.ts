@@ -4,11 +4,11 @@ import { plainToInstance } from 'class-transformer';
 import { CreateProjectDto } from './create-project.dto';
 
 describe('CreateProjectDto', () => {
-  it('should validate valid project payload with positive ETB budget', async () => {
+  it('should validate valid project payload with positive ETB budget string', async () => {
     const payload = {
       name: 'Mobile Banking Portal',
       description: 'Modernization project',
-      budget: 650000.5,
+      budget: '650000.50',
       organizationId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
     };
 
@@ -17,10 +17,10 @@ describe('CreateProjectDto', () => {
     expect(errors.length).toBe(0);
   });
 
-  it('should reject negative budget or invalid UUID', async () => {
+  it('should reject invalid budget decimal or invalid UUID', async () => {
     const payload = {
       name: 'Test Project',
-      budget: -500,
+      budget: 'not-a-number',
       organizationId: 'not-a-uuid',
     };
 

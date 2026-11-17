@@ -1,8 +1,23 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import * as bcrypt from 'bcryptjs';
 import { User } from './entities/user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
+
+export interface SafeUser {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
 
 @Injectable()
 export class UsersService {
@@ -11,8 +26,9 @@ export class UsersService {
     private readonly userRepository: Repository<User>,
   ) {}
 
-  async findAll(): Promise<User[]> {
-    return this.userRepository.find();
+  async findAll(): Promise<SafeUser[]> {
+    const users = await this.userRepository.find();
+    return users.map((u) => this.toSafeUser(u));
   }
 
   async findById(id: string): Promise<User> {
@@ -29,16 +45,49 @@ export class UsersService {
   }
 
   async findByEmail(email: string): Promise<User | null> {
-    return this.userRepository.findOne({ where: { email } });
+    return this.userRepository.findOne({
+      where: { email: email.toLowerCase().trim() },
+    });
+  }
+
+  async findByEmailWithPassword(email: string): Promise<User | null> {
+    return this.userRepository
+      .createQueryBuilder('user')
+      .addSelect('user.passwordHash')
+      .where('LOWER(user.email) = LOWER(:email)', { email: email.trim() })
+      .getOne();
   }
 
   async create(createUserDto: CreateUserDto): Promise<User> {
+    const normalizedEmail = createUserDto.email.toLowerCase().trim();
+    const existing = await this.findByEmail(normalizedEmail);
+    if (existing) {
+      throw new ConflictException('Email is already registered');
+    }
+
+    const saltRounds = 10;
+    const passwordHash = await bcrypt.hash(createUserDto.password, saltRounds);
+
     const user = this.userRepository.create({
-      email: createUserDto.email,
-      passwordHash: createUserDto.password, // Authentication hashing will be wired in Auth phase
-      firstName: createUserDto.firstName,
-      lastName: createUserDto.lastName,
+      email: normalizedEmail,
+      passwordHash,
+      firstName: createUserDto.firstName.trim(),
+      lastName: createUserDto.lastName.trim(),
+      isActive: true,
     });
+
     return this.userRepository.save(user);
+  }
+
+  toSafeUser(user: User): SafeUser {
+    return {
+      id: user.id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      isActive: user.isActive,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    };
   }
 }
