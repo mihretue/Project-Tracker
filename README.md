@@ -815,11 +815,23 @@ npm run docker:db:up
 
 ### 4. Run Migrations
 ```bash
-# Apply initial schema
+# Apply schema and task priority migrations
 npm run migration:run
 ```
 
-### 5. Verify Build and Test Suite
+### 5. Seed Demonstration Data
+```bash
+# Seed initial organization, 2 members (Admin & Member), project, and tasks with ETB budgets
+npm run seed
+```
+
+#### Pre-seeded Demonstration Credentials:
+| Account Type | Email | Password | Organization | Tenant Role |
+|---|---|---|---|:---:|
+| **Admin User** | `admin@abyssinia.test` | `Password123!` | Abyssinia Technologies PLC | `ADMIN` |
+| **Member User** | `member@abyssinia.test` | `Password123!` | Abyssinia Technologies PLC | `MEMBER` |
+
+### 6. Verify Build and Test Suite
 ```bash
 # Strict typecheck
 npm run typecheck
@@ -834,7 +846,7 @@ npm run test
 npm run test:e2e
 ```
 
-### 6. Start Development Servers
+### 7. Start Development Servers
 ```bash
 # Terminal 1: Start NestJS Backend (http://localhost:3000/api)
 npm run dev:api
@@ -902,15 +914,25 @@ npm run build
 
 Evaluators can follow this step-by-step walkthrough to test the multi-tenant platform:
 
-1. **Start Services**:
+1. **Start Services & Seed Data**:
    ```bash
    npm run docker:db:up
    npm run migration:run
+   npm run seed    # Populates sample organization, 2 members, project & tasks
    npm run dev:api # In Terminal 1
    npm run dev:web # In Terminal 2
    ```
-2. **Open the Frontend**: Navigate to `http://localhost:5173`.
-3. **Register User A & Create Tenant A**:
+2. **Instant Login with Seeded Accounts**:
+   - Navigate to `http://localhost:5173/login`.
+   - **Log in as Admin**: `admin@abyssinia.test` / `Password123!`
+     - Inspect **Abyssinia Technologies PLC** (`ADMIN` role).
+     - Notice project **Mobile Banking Platform** with **750,000.00 ETB** budget, **550,000.00 ETB** allocated across 4 tasks (73.3%), and **200,000.00 ETB** remaining.
+     - Test adding a new team member or project.
+   - **Log in as Member**: `member@abyssinia.test` / `Password123!`
+     - Inspect the dashboard with `MEMBER` role badge.
+     - Notice project and task creation is accessible, but administrative settings and member deletion are prohibited.
+3. **Open the Frontend**: Navigate to `http://localhost:5173`.
+4. **Register User A & Create Tenant A (Self-Service)**:
    - Navigate to `/register`.
    - Name: `Alice Admin`, Email: `alice@tenanta.com`, Password: `Password123!`, Org: `Tenant A Corp`.
    - Result: Alice is logged in and assigned `ADMIN` of `Tenant A Corp`.

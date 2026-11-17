@@ -21,7 +21,8 @@
     "docker:db:up": "docker compose up -d postgres",
     "docker:db:down": "docker compose down",
     "migration:run": "npm --workspace=@tenant-tracker/api run migration:run",
-    "migration:revert": "npm --workspace=@tenant-tracker/api run migration:revert"
+    "migration:revert": "npm --workspace=@tenant-tracker/api run migration:revert",
+    "seed": "npm --workspace=@tenant-tracker/api run seed"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"
