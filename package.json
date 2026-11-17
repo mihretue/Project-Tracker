@@ -1,0 +1,29 @@
+{
+  "name": "tenant-project-tracker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Multi-tenant project tracker monorepo",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev:api",
+    "dev:all": "npm run dev --workspaces --if-present",
+    "dev:api": "npm --workspace=@tenant-tracker/api run start:dev",
+    "dev:web": "npm --workspace=@tenant-tracker/web run dev",
+    "build": "npm run build:api && npm run build:web",
+    "build:api": "npm --workspace=@tenant-tracker/api run build",
+    "build:web": "npm --workspace=@tenant-tracker/web run build",
+    "test": "npm run test:api",
+    "test:api": "npm --workspace=@tenant-tracker/api run test",
+    "test:e2e": "npm --workspace=@tenant-tracker/api run test:e2e",
+    "typecheck": "npm --workspace=@tenant-tracker/api run typecheck && npm --workspace=@tenant-tracker/web run typecheck",
+    "docker:db:up": "docker compose up -d postgres",
+    "docker:db:down": "docker compose down",
+    "migration:run": "npm --workspace=@tenant-tracker/api run migration:run",
+    "migration:revert": "npm --workspace=@tenant-tracker/api run migration:revert"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
