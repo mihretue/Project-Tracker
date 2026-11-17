@@ -2,9 +2,11 @@ import { DataSource, DataSourceOptions } from 'typeorm';
 import { config } from 'dotenv';
 import { resolve } from 'path';
 
-// Load .env from workspace or app level
+// Load .env from workspace root or app level
 config({ path: resolve(process.cwd(), '.env') });
+config({ path: resolve(process.cwd(), '../../.env') });
 config({ path: resolve(__dirname, '../../.env') });
+config({ path: resolve(__dirname, '../../../../.env') });
 
 export const dataSourceOptions: DataSourceOptions = {
   type: 'postgres',
