@@ -52,8 +52,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const fetchOrganizations = async (): Promise<Organization[]> => {
     try {
-      const res = await api.get<Organization[]>('/organizations');
-      const orgs = res.data;
+      const res = await api.get<Organization[] | { items: Organization[]; count: number }>('/organizations');
+      const orgs = Array.isArray(res.data) ? res.data : res.data.items || [];
       setOrganizations(orgs);
 
       // Select first organization or retain current if still valid
@@ -109,10 +109,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setUser(loggedUser);
 
       // Fetch user's organizations
-      const orgsRes = await api.get<Organization[]>('/organizations', {
+      const orgsRes = await api.get<Organization[] | { items: Organization[]; count: number }>('/organizations', {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
-      const orgs = orgsRes.data;
+      const orgs = Array.isArray(orgsRes.data) ? orgsRes.data : orgsRes.data.items || [];
       setOrganizations(orgs);
       if (orgs.length > 0) {
         setCurrentOrg(orgs[0]);

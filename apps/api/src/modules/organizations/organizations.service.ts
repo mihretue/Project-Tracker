@@ -13,6 +13,7 @@ import { User } from '../users/entities/user.entity';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { AddMemberDto } from './dto/add-member.dto';
 import { MembershipRole } from '../../common/enums/role.enum';
+import { PaginationDto, PaginatedResponse } from '../../common/dto/pagination.dto';
 
 export interface UserOrganizationView {
   id: string;
@@ -84,14 +85,22 @@ export class OrganizationsService {
     });
   }
 
-  async findUserOrganizations(userId: string): Promise<UserOrganizationView[]> {
-    const memberships = await this.membershipRepository.find({
+  async findUserOrganizations(
+    userId: string,
+    pagination?: PaginationDto,
+  ): Promise<PaginatedResponse<UserOrganizationView>> {
+    const take = pagination?.take !== undefined ? pagination.take : 10;
+    const skip = pagination?.skip !== undefined ? pagination.skip : 0;
+
+    const [memberships, totalCount] = await this.membershipRepository.findAndCount({
       where: { userId },
       relations: ['organization'],
       order: { createdAt: 'ASC' },
+      take,
+      skip,
     });
 
-    return memberships.map((m) => ({
+    const items = memberships.map((m) => ({
       id: m.organization.id,
       name: m.organization.name,
       slug: m.organization.slug,
@@ -99,6 +108,13 @@ export class OrganizationsService {
       createdAt: m.organization.createdAt,
       updatedAt: m.organization.updatedAt,
     }));
+
+    return {
+      items,
+      count: totalCount,
+      take,
+      skip,
+    };
   }
 
   async findById(orgId: string, userId: string): Promise<UserOrganizationView> {

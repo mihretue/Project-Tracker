@@ -400,7 +400,7 @@ All API endpoints are prefixed with `/api`. Global error formatting is managed b
 | `GET` | `/users` | List all users | **Yes (JWT)** | None | Authenticated |
 | `GET` | `/users/:id` | Get user details by ID | **Yes (JWT)** | None | Authenticated |
 | `POST` | `/organizations` | Create organization (creator becomes ADMIN) | **Yes (JWT)** | None | Authenticated |
-| `GET` | `/organizations` | List organizations caller belongs to | **Yes (JWT)** | Scoped to User | Authenticated |
+| `GET` | `/organizations[?take=:n&skip=:m]` | List caller organizations with pagination (`items`, `count`, `take`, `skip`) | **Yes (JWT)** | Scoped to User | Authenticated |
 | `GET` | `/organizations/:id` | Get organization details | **Yes (JWT)** | `TenantGuard` | Member or Admin |
 | `GET` | `/organizations/:id/members` | List members of organization | **Yes (JWT)** | `TenantGuard` | Member or Admin |
 | `POST` | `/organizations/:id/members` | Add member to organization | **Yes (JWT)** | `TenantGuard` | **ADMIN** |
@@ -464,6 +464,27 @@ All API endpoints are prefixed with `/api`. Global error formatting is managed b
   "role": "ADMIN",
   "createdAt": "2026-11-17T06:46:00.000Z",
   "updatedAt": "2026-11-17T06:46:00.000Z"
+}
+```
+
+#### 2.1. List Organizations with Pagination (`GET /api/organizations?take=10&skip=0`)
+**Header**: `Authorization: Bearer <token>`  
+**Response (`200 OK`)**:
+```json
+{
+  "items": [
+    {
+      "id": "3c842b08-f1c5-4d2b-8a56-8bf8df2410a5",
+      "name": "Addis Tech Solutions PLC",
+      "slug": "addis-tech",
+      "role": "ADMIN",
+      "createdAt": "2026-11-17T06:46:00.000Z",
+      "updatedAt": "2026-11-17T06:46:00.000Z"
+    }
+  ],
+  "count": 1,
+  "take": 10,
+  "skip": 0
 }
 ```
 

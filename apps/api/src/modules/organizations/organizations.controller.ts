@@ -5,9 +5,11 @@ import {
   Patch,
   Body,
   Param,
+  Query,
   ParseUUIDPipe,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import {
   OrganizationsService,
   UserOrganizationView,
@@ -16,6 +18,7 @@ import {
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { AddMemberDto } from './dto/add-member.dto';
 import { UpdateMemberRoleDto } from './dto/update-member-role.dto';
+import { PaginationDto, PaginatedResponse } from '../../common/dto/pagination.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { TenantGuard } from './guards/tenant.guard';
 import { TenantRoles } from './decorators/tenant-roles.decorator';
@@ -23,11 +26,14 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User } from '../users/entities/user.entity';
 import { MembershipRole } from '../../common/enums/role.enum';
 
+@ApiTags('Organizations')
+@ApiBearerAuth('JWT-auth')
 @Controller('organizations')
 @UseGuards(JwtAuthGuard)
 export class OrganizationsController {
   constructor(private readonly orgsService: OrganizationsService) {}
 
+  @ApiOperation({ summary: 'Create new organization (caller becomes ADMIN)' })
   @Post()
   async create(
     @Body() dto: CreateOrganizationDto,
@@ -36,12 +42,16 @@ export class OrganizationsController {
     return this.orgsService.create(dto, user);
   }
 
+  @ApiOperation({ summary: 'List organizations caller belongs to with pagination (take, skip)' })
   @Get()
-  async findAll(@CurrentUser() user: User): Promise<UserOrganizationView[]> {
-    // Only return organizations where user has an active membership
-    return this.orgsService.findUserOrganizations(user.id);
+  async findAll(
+    @CurrentUser() user: User,
+    @Query() pagination: PaginationDto,
+  ): Promise<PaginatedResponse<UserOrganizationView>> {
+    return this.orgsService.findUserOrganizations(user.id, pagination);
   }
 
+  @ApiOperation({ summary: 'Get organization by ID (requires membership)' })
   @Get(':id')
   @UseGuards(TenantGuard)
   async findById(
@@ -51,6 +61,7 @@ export class OrganizationsController {
     return this.orgsService.findById(id, user.id);
   }
 
+  @ApiOperation({ summary: 'List organization members (requires membership)' })
   @Get(':id/members')
   @UseGuards(TenantGuard)
   async listMembers(
@@ -60,6 +71,7 @@ export class OrganizationsController {
     return this.orgsService.listMembers(id, user.id);
   }
 
+  @ApiOperation({ summary: 'Add new member to organization (ADMIN only)' })
   @Post(':id/members')
   @UseGuards(TenantGuard)
   @TenantRoles(MembershipRole.ADMIN)
@@ -71,6 +83,7 @@ export class OrganizationsController {
     return this.orgsService.addMember(id, dto, user.id);
   }
 
+  @ApiOperation({ summary: 'Update member role (ADMIN only)' })
   @Patch(':id/members/:userId')
   @UseGuards(TenantGuard)
   @TenantRoles(MembershipRole.ADMIN)
