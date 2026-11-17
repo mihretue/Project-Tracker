@@ -101,6 +101,14 @@ export const ProjectDashboardPage: React.FC = () => {
     void loadProjects();
   }, [currentOrg?.id]);
 
+  // Sync selected project if clicked from sidebar navigation
+  useEffect(() => {
+    const navProjectId = (location.state as { projectId?: string })?.projectId;
+    if (navProjectId && projects.some((p) => p.id === navProjectId)) {
+      setSelectedProjectId(navProjectId);
+    }
+  }, [location.state, projects]);
+
   // Load tasks when selected project or priority filter changes
   useEffect(() => {
     const loadTasks = async (): Promise<void> => {
