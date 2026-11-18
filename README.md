@@ -293,7 +293,7 @@ sequenceDiagram
 0. **Two independent authorization levels**: `User.platformRole` (`PLATFORM_ADMIN` | `USER`) is application-wide; `OrganizationMembership.role` (`ADMIN` | `MEMBER`) is per organization. Being ADMIN of one organization grants no platform-level rights, and a user can be ADMIN in one organization and MEMBER in another. `platformRole` is read from the database on every request (never from the JWT or client input), cannot be set through registration, and is only granted by the seed/bootstrap script (see *Provisioning the first PLATFORM_ADMIN*).
 1. **Creation**: Only a `PLATFORM_ADMIN` can call `POST /api/organizations` (others receive `403`). The body must include `initialAdminUserId`; in one database transaction the backend creates the organization and a single `ADMIN` membership for that user. The caller is **not** made a member.
 2. **Invitation**: Only users with the `ADMIN` role in an organization can add members via `POST /api/organizations/:id/members`.
-3. **Role Management**: Only `ADMIN` users can change another member's role via `PATCH /api/organizations/:id/members/:userId`.
+3. **Role Management**: Only `ADMIN` users can change another member's role via `PATCH /api/organizations/:id/members/:userId`. An organization must always keep at least one `ADMIN`: demoting the last one returns `409`. The check runs in a transaction holding a row lock on the organization, so concurrent role changes cannot both pass it. To hand over, promote the replacement first, then demote the old admin.
 4. **Member Self-Add Prevention**: A user cannot self-join an organization without being invited by an active `ADMIN`.
 
 ### RBAC Permission Matrix
@@ -398,8 +398,8 @@ All API endpoints are prefixed with `/api`. Global error formatting is managed b
 | `POST` | `/auth/register` | Register new user profile | No | None | Public |
 | `POST` | `/auth/login` | Authenticate user & receive JWT token | No | None | Public |
 | `GET` | `/auth/me` | Fetch authenticated user profile | **Yes (JWT)** | None | Authenticated |
-| `GET` | `/users` | List all users | **Yes (JWT)** | None | Authenticated |
-| `GET` | `/users/:id` | Get user details by ID | **Yes (JWT)** | None | Authenticated |
+| `GET` | `/users` | List all users (feeds the initial-admin picker) | **Yes (JWT)** | `PlatformRolesGuard` | **PLATFORM_ADMIN** |
+| `GET` | `/users/:id` | Own profile only (`403` for any other ID) | **Yes (JWT)** | Self-check | Authenticated |
 | `POST` | `/organizations` | Create organization and assign its initial ADMIN | **Yes (JWT)** | `PlatformRolesGuard` | **PLATFORM_ADMIN** |
 | `GET` | `/organizations[?take=:n&skip=:m]` | List caller organizations with pagination (`items`, `count`, `take`, `skip`) | **Yes (JWT)** | Scoped to User | Authenticated |
 | `GET` | `/organizations/:id` | Get organization details | **Yes (JWT)** | `TenantGuard` | Member or Admin |

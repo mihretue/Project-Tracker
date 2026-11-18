@@ -189,7 +189,7 @@ describe('Platform-Level vs Organization-Level Authorization (e2e)', () => {
     );
     expect(parseInt(sneaky[0].count, 10)).toBe(0);
 
-    // The unauthenticated POST /users path is closed the same way
+    // POST /users no longer exists (covered in users-access.e2e-spec.ts)
     await request(app.getHttpServer())
       .post('/api/users')
       .send({
@@ -199,7 +199,7 @@ describe('Platform-Level vs Organization-Level Authorization (e2e)', () => {
         lastName: 'Two',
         platformRole: 'PLATFORM_ADMIN',
       })
-      .expect(400);
+      .expect(404);
   });
 
   it('7. Newly registered users default to USER', async () => {

@@ -269,43 +269,66 @@ export class OrganizationsService {
     newRole: MembershipRole,
     actorId: string,
   ): Promise<MemberView> {
-    // 1. Verify actor is ADMIN
-    const actorMembership = await this.membershipRepository.findOne({
-      where: { organizationId: orgId, userId: actorId },
+    return this.dataSource.transaction(async (manager) => {
+      // Serialize role changes per organization: concurrent updates queue on this row lock, and
+      // every read below (made after the lock is granted) sees the previous update's result.
+      // Without it, two admins demoting each other at once would both pass the last-admin check.
+      await manager.findOne(Organization, {
+        where: { id: orgId },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      // 1. Verify actor is (still) ADMIN. Re-checked under the lock: the guard's check ran earlier.
+      const actorMembership = await manager.findOne(OrganizationMembership, {
+        where: { organizationId: orgId, userId: actorId },
+      });
+
+      if (!actorMembership || actorMembership.role !== MembershipRole.ADMIN) {
+        throw new ForbiddenException(
+          'Access denied: Only organization admins can modify member roles',
+        );
+      }
+
+      // 2. Verify target membership exists
+      const targetMembership = await manager.findOne(OrganizationMembership, {
+        where: { organizationId: orgId, userId: targetUserId },
+        relations: ['user'],
+      });
+
+      if (!targetMembership) {
+        throw new NotFoundException(
+          'Membership not found for this user and organization',
+        );
+      }
+
+      // 3. An organization must always keep at least one ADMIN
+      if (targetMembership.role === MembershipRole.ADMIN && newRole !== MembershipRole.ADMIN) {
+        const adminCount = await manager.count(OrganizationMembership, {
+          where: { organizationId: orgId, role: MembershipRole.ADMIN },
+        });
+
+        if (adminCount <= 1) {
+          throw new ConflictException(
+            'An organization must always have at least one ADMIN. Promote another member to ADMIN before demoting the last one.',
+          );
+        }
+      }
+
+      targetMembership.role = newRole;
+      const saved = await manager.save(targetMembership);
+
+      return {
+        id: saved.id,
+        userId: saved.userId,
+        role: saved.role,
+        user: {
+          id: saved.user.id,
+          email: saved.user.email,
+          firstName: saved.user.firstName,
+          lastName: saved.user.lastName,
+        },
+        createdAt: saved.createdAt,
+      };
     });
-
-    if (!actorMembership || actorMembership.role !== MembershipRole.ADMIN) {
-      throw new ForbiddenException(
-        'Access denied: Only organization admins can modify member roles',
-      );
-    }
-
-    // 2. Verify target membership exists
-    const targetMembership = await this.membershipRepository.findOne({
-      where: { organizationId: orgId, userId: targetUserId },
-      relations: ['user'],
-    });
-
-    if (!targetMembership) {
-      throw new NotFoundException(
-        'Membership not found for this user and organization',
-      );
-    }
-
-    targetMembership.role = newRole;
-    const saved = await this.membershipRepository.save(targetMembership);
-
-    return {
-      id: saved.id,
-      userId: saved.userId,
-      role: saved.role,
-      user: {
-        id: saved.user.id,
-        email: saved.user.email,
-        firstName: saved.user.firstName,
-        lastName: saved.user.lastName,
-      },
-      createdAt: saved.createdAt,
-    };
   }
 }
