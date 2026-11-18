@@ -6,8 +6,6 @@ export interface User {
   email: string;
   firstName: string;
   lastName: string;
-  /** Platform-level role. UI hint only: the API enforces it on every request. */
-  platformRole?: 'PLATFORM_ADMIN' | 'USER';
 }
 
 export interface Organization {
@@ -24,7 +22,6 @@ interface AuthContextType {
   organizations: Organization[];
   currentOrg: Organization | null;
   isLoading: boolean;
-  isPlatformAdmin: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (
     email: string,
@@ -34,6 +31,8 @@ interface AuthContextType {
   ) => Promise<void>;
   logout: () => void;
   switchOrganization: (orgId: string) => void;
+  /** Adds a just-created organization to the selector and makes it the current one. */
+  addOrganization: (org: Organization) => void;
   refreshOrganizations: () => Promise<Organization[]>;
 }
 
@@ -148,8 +147,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setToken(accessToken);
       setUser(registeredUser);
 
-      // 2. New accounts belong to no organization: a platform administrator creates
-      // organizations and assigns their initial administrator.
+      // 2. New accounts start without an organization; the user creates one from the dashboard
+      // and becomes its ADMIN.
       setOrganizations([]);
       setCurrentOrg(null);
       localStorage.removeItem('currentOrg');
@@ -176,6 +175,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
+  const addOrganization = (org: Organization): void => {
+    setOrganizations((prev) => (prev.some((o) => o.id === org.id) ? prev : [...prev, org]));
+    setCurrentOrg(org);
+    localStorage.setItem('currentOrg', JSON.stringify(org));
+  };
+
   const refreshOrganizations = async (): Promise<Organization[]> => {
     return fetchOrganizations();
   };
@@ -188,11 +193,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         organizations,
         currentOrg,
         isLoading,
-        isPlatformAdmin: user?.platformRole === 'PLATFORM_ADMIN',
         login,
         register,
         logout,
         switchOrganization,
+        addOrganization,
         refreshOrganizations,
       }}
     >

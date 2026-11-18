@@ -50,7 +50,7 @@ This application is built as a single **modular monolith** inside an `npm` works
   - JWT access tokens with generic error responses that defeat user-enumeration attacks.
   - Sanitized user profiles where sensitive fields (`passwordHash`) are never serialized.
 - **Multi-Tenant Organization Management**:
-  - Organizations are created only by a `PLATFORM_ADMIN`, who selects an existing user as the initial organization `ADMIN` (the creator is not auto-added).
+  - Any authenticated user can create an organization and automatically becomes its `ADMIN`.
   - Many-to-many relationship allowing users to join multiple independent organizations.
   - Organization switching on both frontend and backend.
 - **Granular Role-Based Access Control (RBAC)**:
@@ -290,17 +290,17 @@ sequenceDiagram
 ## 7. Organization Membership and RBAC
 
 ### Membership Lifecycle & Rules
-0. **Two independent authorization levels**: `User.platformRole` (`PLATFORM_ADMIN` | `USER`) is application-wide; `OrganizationMembership.role` (`ADMIN` | `MEMBER`) is per organization. Being ADMIN of one organization grants no platform-level rights, and a user can be ADMIN in one organization and MEMBER in another. `platformRole` is read from the database on every request (never from the JWT or client input), cannot be set through registration, and is only granted by the seed/bootstrap script (see *Provisioning the first PLATFORM_ADMIN*).
-1. **Creation**: Only a `PLATFORM_ADMIN` can call `POST /api/organizations` (others receive `403`). The body must include `initialAdminUserId`; in one database transaction the backend creates the organization and a single `ADMIN` membership for that user. The caller is **not** made a member.
+1. **Creation**: Any authenticated user can create an organization via `POST /api/organizations`. The backend runs one database transaction that creates the organization and an `OrganizationMembership` assigning the creator the `ADMIN` role; the body accepts only `name` and `slug`, so nobody can pick or inject another user's membership at creation. Creating an organization grants no access to any other organization.
 2. **Invitation**: Only users with the `ADMIN` role in an organization can add members via `POST /api/organizations/:id/members`.
-3. **Role Management**: Only `ADMIN` users can change another member's role via `PATCH /api/organizations/:id/members/:userId`. An organization must always keep at least one `ADMIN`: demoting the last one returns `409`. The check runs in a transaction holding a row lock on the organization, so concurrent role changes cannot both pass it. To hand over, promote the replacement first, then demote the old admin.
-4. **Member Self-Add Prevention**: A user cannot self-join an organization without being invited by an active `ADMIN`.
+3. **Roles are per organization**: a user can belong to several organizations and hold a different role (`ADMIN` or `MEMBER`) in each; an `ADMIN` in one organization has no rights in another.
+4. **Role Management**: Only `ADMIN` users can change another member's role via `PATCH /api/organizations/:id/members/:userId`. An organization must always keep at least one `ADMIN`: demoting the last one returns `409`. The check runs in a transaction holding a row lock on the organization, so concurrent role changes cannot both pass it. To hand over, promote the replacement first, then demote the old admin.
+5. **Member Self-Add Prevention**: A user cannot self-join an organization without being invited by an active `ADMIN`.
 
 ### RBAC Permission Matrix
 
 | Capability | ADMIN | MEMBER | Unauthenticated |
 |---|:---:|:---:|:---:|
-| Create New Organization | **No (403)** — requires platform role `PLATFORM_ADMIN` | **No (403)** — same | No (401) |
+| Create New Organization | Yes | Yes | No (401) |
 | View Organization Details & Members | Yes | Yes | No (401) |
 | Add Members to Organization | Yes | **No (403)** | No (401) |
 | Modify Member Roles | Yes | **No (403)** | No (401) |
@@ -398,9 +398,8 @@ All API endpoints are prefixed with `/api`. Global error formatting is managed b
 | `POST` | `/auth/register` | Register new user profile | No | None | Public |
 | `POST` | `/auth/login` | Authenticate user & receive JWT token | No | None | Public |
 | `GET` | `/auth/me` | Fetch authenticated user profile | **Yes (JWT)** | None | Authenticated |
-| `GET` | `/users` | List all users (feeds the initial-admin picker) | **Yes (JWT)** | `PlatformRolesGuard` | **PLATFORM_ADMIN** |
 | `GET` | `/users/:id` | Own profile only (`403` for any other ID) | **Yes (JWT)** | Self-check | Authenticated |
-| `POST` | `/organizations` | Create organization and assign its initial ADMIN | **Yes (JWT)** | `PlatformRolesGuard` | **PLATFORM_ADMIN** |
+| `POST` | `/organizations` | Create organization (creator becomes ADMIN) | **Yes (JWT)** | None | Authenticated |
 | `GET` | `/organizations[?take=:n&skip=:m]` | List caller organizations with pagination (`items`, `count`, `take`, `skip`) | **Yes (JWT)** | Scoped to User | Authenticated |
 | `GET` | `/organizations/:id` | Get organization details | **Yes (JWT)** | `TenantGuard` | Member or Admin |
 | `GET` | `/organizations/:id/members` | List members of organization | **Yes (JWT)** | `TenantGuard` | Member or Admin |
@@ -448,13 +447,12 @@ All API endpoints are prefixed with `/api`. Global error formatting is managed b
 ```
 
 #### 2. Create Organization (`POST /api/organizations`)
-**Header**: `Authorization: Bearer <PLATFORM_ADMIN token>` (other users receive `403`)  
+**Header**: `Authorization: Bearer <token>`  
 **Request**:
 ```json
 {
   "name": "Addis Tech Solutions PLC",
-  "slug": "addis-tech",
-  "initialAdminUserId": "a1b2c3d4-e5f6-4a8b-9c0d-1e2f3a4b5c6d"
+  "slug": "addis-tech"
 }
 ```
 **Response (`201 Created`)**:
@@ -463,12 +461,7 @@ All API endpoints are prefixed with `/api`. Global error formatting is managed b
   "id": "3c842b08-f1c5-4d2b-8a56-8bf8df2410a5",
   "name": "Addis Tech Solutions PLC",
   "slug": "addis-tech",
-  "initialAdmin": {
-    "userId": "a1b2c3d4-e5f6-4a8b-9c0d-1e2f3a4b5c6d",
-    "email": "owner@example.com",
-    "firstName": "Abebe",
-    "lastName": "Bikila"
-  },
+  "role": "ADMIN",
   "createdAt": "2026-11-17T06:46:00.000Z",
   "updatedAt": "2026-11-17T06:46:00.000Z"
 }
@@ -632,7 +625,7 @@ The frontend is located in `apps/web` and built with **React 18**, **TypeScript*
   - *Important*: Frontend route protection is treated purely as a UI convenience; the backend remains the sole authoritative security boundary.
 - **Pages**:
   - `LoginPage`: Form validation, loading state, error alerts on invalid credentials.
-  - `RegisterPage`: User registration only. New accounts belong to no organization until a platform administrator adds them.
+  - `RegisterPage`: User registration only. New accounts start without an organization and create one from the dashboard (becoming its `ADMIN`).
   - `OrganizationDashboardPage`: Real-time member listing, role assignment modals, project creation modals (visible only to `ADMIN`).
   - `ProjectDashboardPage`: Project switcher, task deliverables table, live ETB budget utilization calculation.
 
@@ -664,7 +657,7 @@ The test suite configures:
 | **7** | User C cannot access Org B task by ID manipulation | Bypassing project validation by manipulating direct task UUIDs | **Passed (403)** |
 | **8** | Regular MEMBER cannot perform ADMIN actions | Privilege escalation (non-admin inviting members or deleting projects) | **Passed (403)** |
 | **9** | Multi-tenant user roles strictly enforced | Role pollution (holding ADMIN in Org A must not confer ADMIN rights in Org B) | **Passed (403/200)** |
-| **10** | Platform admin creates an org for a chosen ADMIN and gains no membership | Platform role leaking into tenant access; orphan organizations | **Passed (201/200/403)** |
+| **10** | Organization creation sets creator as ADMIN | Abandoned or orphan organizations without administrative ownership | **Passed (201)** |
 
 ### Actual Test Execution Output
 
@@ -680,7 +673,7 @@ PASS test/tenant-isolation.e2e-spec.ts
     √ 7. User C cannot read, update, or delete Organization B task by ID manipulation (29 ms)
     √ 8. Organization MEMBER cannot add members, modify roles, or delete projects (21 ms)
     √ 9. User A belongs to Org A (ADMIN) and Org B (MEMBER) and role permissions are strictly enforced per tenant (32 ms)
-    √ 10. Platform admin creates an org for a chosen ADMIN and gains no membership in it
+    √ 10. Organization creation automatically assigns ADMIN role to creator
 
 Test Suites: 1 passed, 1 total
 Tests:       10 passed, 10 total
@@ -744,6 +737,9 @@ npm run migration:generate -- apps/api/src/database/migrations/YourMigrationName
   ```
 - **Rollback Data Loss Implications**:
   Executing `migration:revert` safely removes the `priority` column and type definition. While individual task priority classifications (`LOW`, `MEDIUM`, `HIGH`) are dropped, **all underlying tasks, titles, descriptions, statuses, ETB estimated costs, timestamps, and relationships remain 100% intact**. Existing tasks are neither deleted nor recreated.
+
+### Migration history note: platform role added, then removed
+`AddUserPlatformRole1700000002000` added a `users.platformRole` column and `RemoveUserPlatformRole1700000003000` drops it again (organization creation is self-service, so no application-wide role is needed). `up` drops the column and its enum type with `IF EXISTS`; `down` recreates both with every user defaulting to `USER`. Dropping the column loses only that unused field: no users, organizations, memberships, projects or tasks are touched. Roll back with `npm run migration:revert`.
 
 ---
 
@@ -832,16 +828,6 @@ npm run migration:run
 npm run seed
 ```
 
-#### Provisioning the first PLATFORM_ADMIN
-Organizations can only be created by a `PLATFORM_ADMIN`. There is no API that grants this role; it is provisioned server-side by the seed script from environment variables (never from source code):
-```bash
-# bash
-PLATFORM_ADMIN_EMAIL=you@example.com PLATFORM_ADMIN_PASSWORD='<at least 12 characters>' npm run seed
-# PowerShell
-$env:PLATFORM_ADMIN_EMAIL='you@example.com'; $env:PLATFORM_ADMIN_PASSWORD='<at least 12 characters>'; npm run seed
-```
-The step is idempotent: it creates the user if missing, or promotes the existing user (without changing the password). If the variables are unset it is skipped. Existing users are migrated to `USER` by migration `AddUserPlatformRole1700000002000`; roll back with `npm run migration:revert`.
-
 #### Pre-seeded Demonstration Credentials:
 | Account Type | Email | Password | Organization | Tenant Role |
 |---|---|---|---|:---:|
@@ -893,7 +879,6 @@ npm run dev:web
 | `AUTH_RATE_LIMIT_MAX` | Max login requests and max registration requests per client IP per window (each limited separately) | `10` |
 | `AUTH_RATE_LIMIT_WINDOW_MS` | Rate-limit window in milliseconds | `60000` |
 | `TRUST_PROXY` | Set to `1` behind one reverse proxy so rate limiting uses each client's real IP | *(unset)* |
-| `PLATFORM_ADMIN_EMAIL` / `PLATFORM_ADMIN_PASSWORD` | Read only by `npm run seed` to provision the first `PLATFORM_ADMIN` (password 12+ chars) | *(unset: step skipped)* |
 
 **Development vs production**: in development copy `apps/api/.env.example` to `apps/api/.env` and fill in `JWT_SECRET` (the defaults for CORS and rate limiting suit local use). In production set every variable in the host's secret/environment manager (never in a committed file), use a different `JWT_SECRET` from development, set `NODE_ENV=production`, `CORS_ALLOWED_ORIGINS` to the exact frontend origin, and `TRUST_PROXY=1` if the host puts a proxy in front of the API. Rotating `JWT_SECRET` invalidates all issued tokens.
 | `VITE_API_URL` | Base API URL consumed by React frontend | `http://localhost:3000/api` |
@@ -959,10 +944,10 @@ Evaluators can follow this step-by-step walkthrough to test the multi-tenant pla
      - Inspect the dashboard with `MEMBER` role badge.
      - Notice project and task creation is accessible, but administrative settings and member deletion are prohibited.
 3. **Open the Frontend**: Navigate to `http://localhost:5173`.
-4. **Register User A & Create Tenant A (via Platform Admin)**:
-   - Navigate to `/register` and register `Alice Admin` (`alice@tenanta.com`, `Password123!`). She starts with no organization and no organization-creation controls.
-   - Log in as the platform administrator (see *Provisioning the first PLATFORM_ADMIN*), click **New Organization**, enter `Tenant A Corp` and select Alice as the initial administrator.
-   - Result: Alice is `ADMIN` of `Tenant A Corp`; the platform administrator is not a member of it.
+4. **Register User A & Create Tenant A (Self-Service)**:
+   - Navigate to `/register` and register `Alice Admin` (`alice@tenanta.com`, `Password123!`). She starts with no organization.
+   - On the dashboard click **Create an Organization** and enter `Tenant A Corp`.
+   - Result: Alice is `ADMIN` of `Tenant A Corp` and the new organization is selected automatically.
 4. **Create Project in Tenant A**:
    - On the Organization Dashboard, click **New Project**.
    - Name: `Core Banking API`, Budget: `500000.00`.

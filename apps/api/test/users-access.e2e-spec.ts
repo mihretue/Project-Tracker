@@ -5,7 +5,6 @@ import { randomUUID } from 'crypto';
 import { AppModule } from '../src/app.module';
 import { DataSource } from 'typeorm';
 import { AllExceptionsFilter } from '../src/common/filters/http-exception.filter';
-import { createPlatformAdmin, TestPlatformAdmin } from './helpers/platform-admin';
 
 interface TestUser {
   token: string;
@@ -18,7 +17,6 @@ describe('User Endpoint Access Control (e2e)', () => {
   let app: INestApplication;
   let dataSource: DataSource;
 
-  let platformAdmin: TestPlatformAdmin;
   let alice: TestUser;
   let bob: TestUser;
 
@@ -54,7 +52,6 @@ describe('User Endpoint Access Control (e2e)', () => {
     await dataSource.query('DELETE FROM "organizations"');
     await dataSource.query('DELETE FROM "users"');
 
-    platformAdmin = await createPlatformAdmin(app, dataSource, 'pa@users-access.test');
     alice = await registerUser('alice@users-access.test', 'Alice');
     bob = await registerUser('bob@users-access.test', 'Bob');
   });
@@ -77,7 +74,7 @@ describe('User Endpoint Access Control (e2e)', () => {
 
     expect(res.body.id).toBe(alice.id);
     expect(res.body.email).toBe('alice@users-access.test');
-    expect(res.body.platformRole).toBe('USER');
+    expect(res.body.platformRole).toBeUndefined();
     expect(res.body.passwordHash).toBeUndefined();
     expect(res.body.memberships).toBeUndefined();
   });
@@ -96,16 +93,27 @@ describe('User Endpoint Access Control (e2e)', () => {
       .expect(403);
   });
 
-  it('5. A platform admin has no administrative need for other profiles: still 403, own profile 200', async () => {
+  it('5. An organization ADMIN cannot read the profile of a member of their own organization via /users/:id', async () => {
+    const org = await request(app.getHttpServer())
+      .post('/api/organizations')
+      .set('Authorization', `Bearer ${alice.token}`)
+      .send({ name: 'Alice Org', slug: 'alice-users-access' })
+      .expect(201);
+    await request(app.getHttpServer())
+      .post(`/api/organizations/${org.body.id}/members`)
+      .set('Authorization', `Bearer ${alice.token}`)
+      .send({ userId: bob.id, role: 'MEMBER' })
+      .expect(201);
+
+    // Alice is ADMIN and Bob is her member, yet profile lookup stays self-only
+    await request(app.getHttpServer())
+      .get(`/api/users/${bob.id}`)
+      .set('Authorization', `Bearer ${alice.token}`)
+      .expect(403);
     await request(app.getHttpServer())
       .get(`/api/users/${alice.id}`)
-      .set('Authorization', `Bearer ${platformAdmin.token}`)
+      .set('Authorization', `Bearer ${bob.token}`)
       .expect(403);
-
-    await request(app.getHttpServer())
-      .get(`/api/users/${platformAdmin.userId}`)
-      .set('Authorization', `Bearer ${platformAdmin.token}`)
-      .expect(200);
   });
 
   it('6. Malformed IDs are rejected (400)', async () => {
@@ -126,7 +134,7 @@ describe('User Endpoint Access Control (e2e)', () => {
     await request(app.getHttpServer()).post('/api/users').send(payload).expect(404);
     await request(app.getHttpServer())
       .post('/api/users')
-      .set('Authorization', `Bearer ${platformAdmin.token}`)
+      .set('Authorization', `Bearer ${alice.token}`)
       .send(payload)
       .expect(404);
 
@@ -136,7 +144,7 @@ describe('User Endpoint Access Control (e2e)', () => {
     expect(parseInt(rows[0].count, 10)).toBe(0);
   });
 
-  it('8. Regression: registration, login, /users/me, /auth/me and the platform-admin list still work', async () => {
+  it('8. Regression: registration, login, /users/me and /auth/me still work, and no user-listing endpoint exists', async () => {
     const reg = await request(app.getHttpServer())
       .post('/api/auth/register')
       .send({
@@ -163,14 +171,12 @@ describe('User Endpoint Access Control (e2e)', () => {
       .set('Authorization', `Bearer ${login.body.accessToken}`)
       .expect(200);
 
+    // There is no endpoint that lists all users: no one, whatever their organization role, can
+    // enumerate accounts of other tenants
+    await request(app.getHttpServer()).get('/api/users').expect(404);
     await request(app.getHttpServer())
       .get('/api/users')
       .set('Authorization', `Bearer ${alice.token}`)
-      .expect(403);
-    const list = await request(app.getHttpServer())
-      .get('/api/users')
-      .set('Authorization', `Bearer ${platformAdmin.token}`)
-      .expect(200);
-    expect(list.body.length).toBeGreaterThanOrEqual(4);
+      .expect(404);
   });
 });

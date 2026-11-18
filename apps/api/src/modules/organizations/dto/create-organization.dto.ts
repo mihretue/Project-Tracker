@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString, IsUUID, Matches, MaxLength } from 'class-validator';
+import { IsNotEmpty, IsString, Matches, MaxLength } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class CreateOrganizationDto {
@@ -19,11 +19,4 @@ export class CreateOrganizationDto {
     message: 'Slug must contain only lowercase letters, numbers, and hyphens',
   })
   slug: string;
-
-  @ApiProperty({
-    example: 'a1b2c3d4-e5f6-4a8b-9c0d-1e2f3a4b5c6d',
-    description: 'UUID of an existing user who becomes the initial organization ADMIN',
-  })
-  @IsUUID('4', { message: 'initialAdminUserId must be a valid UUID' })
-  initialAdminUserId: string;
 }

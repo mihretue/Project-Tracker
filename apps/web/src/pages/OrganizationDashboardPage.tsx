@@ -14,7 +14,7 @@ import {
   Users,
 } from 'lucide-react';
 import { StatCard } from '../components/StatCard';
-import { useAuth } from '../context/AuthContext';
+import { useAuth, Organization } from '../context/AuthContext';
 import { api } from '../services/api';
 import axios from 'axios';
 
@@ -31,13 +31,6 @@ interface MemberView {
   createdAt: string;
 }
 
-interface UserOption {
-  id: string;
-  email: string;
-  firstName: string;
-  lastName: string;
-}
-
 interface ProjectView {
   id: string;
   name: string;
@@ -49,8 +42,7 @@ interface ProjectView {
 }
 
 export const OrganizationDashboardPage: React.FC = () => {
-  const { currentOrg, organizations, switchOrganization, refreshOrganizations, isPlatformAdmin } =
-    useAuth();
+  const { currentOrg, organizations, switchOrganization, addOrganization } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -71,8 +63,6 @@ export const OrganizationDashboardPage: React.FC = () => {
 
   const [showCreateOrg, setShowCreateOrg] = useState(false);
   const [newOrgName, setNewOrgName] = useState('');
-  const [newOrgAdminId, setNewOrgAdminId] = useState('');
-  const [userOptions, setUserOptions] = useState<UserOption[]>([]);
   const [createOrgError, setCreateOrgError] = useState<string | null>(null);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -111,23 +101,6 @@ export const OrganizationDashboardPage: React.FC = () => {
       navigate(location.pathname, { replace: true, state: null });
     }
   }, [location.state]);
-
-  // Platform admins pick the initial organization ADMIN from existing users
-  useEffect(() => {
-    if (!showCreateOrg || !isPlatformAdmin) return;
-    let cancelled = false;
-    api
-      .get<UserOption[]>('/users')
-      .then((res) => {
-        if (!cancelled) setUserOptions(res.data);
-      })
-      .catch(() => {
-        if (!cancelled) setCreateOrgError('Could not load the list of users.');
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [showCreateOrg, isPlatformAdmin]);
 
   const handleAddMember = async (e: FormEvent): Promise<void> => {
     e.preventDefault();
@@ -185,10 +158,6 @@ export const OrganizationDashboardPage: React.FC = () => {
 
   const handleCreateOrg = async (e: FormEvent): Promise<void> => {
     e.preventDefault();
-    if (!newOrgAdminId) {
-      setCreateOrgError('Select the user who will be the organization administrator.');
-      return;
-    }
     setIsSubmitting(true);
     setCreateOrgError(null);
 
@@ -198,18 +167,18 @@ export const OrganizationDashboardPage: React.FC = () => {
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/(^-|-$)/g, '');
 
-      await api.post('/organizations', {
+      // The creator becomes ADMIN server-side; the response already carries that role
+      const res = await api.post<Organization>('/organizations', {
         name: newOrgName,
         slug: slug || `org-${Date.now()}`,
-        initialAdminUserId: newOrgAdminId,
       });
       setShowCreateOrg(false);
       setNewOrgName('');
-      setNewOrgAdminId('');
-      await refreshOrganizations();
+      // Make the new organization selectable and switch to it
+      addOrganization(res.data);
     } catch (err: unknown) {
-      if (axios.isAxiosError(err) && err.response?.status === 403) {
-        setCreateOrgError('Only platform administrators can create organizations.');
+      if (axios.isAxiosError(err) && err.response?.status === 409) {
+        setCreateOrgError('An organization with a similar name already exists. Try a different name.');
       } else if (axios.isAxiosError(err) && err.response?.data?.message) {
         const msg = err.response.data.message;
         setCreateOrgError(Array.isArray(msg) ? msg.join(', ') : String(msg));
@@ -227,7 +196,7 @@ export const OrganizationDashboardPage: React.FC = () => {
   };
 
   const createOrgModal =
-    showCreateOrg && isPlatformAdmin ? (
+    showCreateOrg ? (
       <div className="auth-wrapper" style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 100 }}>
         <div className="auth-card" style={{ maxWidth: 450 }}>
           <h2 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '1rem' }}>Create New Organization</h2>
@@ -258,25 +227,6 @@ export const OrganizationDashboardPage: React.FC = () => {
                 required
               />
             </div>
-            <div className="form-group">
-              <label className="form-label" htmlFor="initial-admin">
-                Initial Organization Administrator
-              </label>
-              <select
-                id="initial-admin"
-                className="form-input"
-                value={newOrgAdminId}
-                onChange={(e) => setNewOrgAdminId(e.target.value)}
-                required
-              >
-                <option value="">Select an existing user…</option>
-                {userOptions.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.firstName} {u.lastName} ({u.email})
-                  </option>
-                ))}
-              </select>
-            </div>
             <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.25rem' }}>
               <button type="button" onClick={closeCreateOrg} className="btn btn-outline" style={{ flex: 1 }}>
                 Cancel
@@ -306,16 +256,12 @@ export const OrganizationDashboardPage: React.FC = () => {
       <div style={{ textAlign: 'center', padding: '3rem 1rem' }}>
         <h2>No Organization Found</h2>
         <p style={{ color: 'var(--text-secondary)', margin: '1rem 0' }}>
-          {isPlatformAdmin
-            ? 'You are not a member of any organization yet. As a platform administrator you can create one.'
-            : 'You do not belong to any organization yet. Ask a platform administrator to add you to one.'}
+          You do not belong to any organization yet. Create one to get started; you will be its administrator.
         </p>
-        {isPlatformAdmin && (
-          <button onClick={() => setShowCreateOrg(true)} className="btn btn-primary">
-            <Plus size={16} />
-            <span>Create an Organization</span>
-          </button>
-        )}
+        <button onClick={() => setShowCreateOrg(true)} className="btn btn-primary">
+          <Plus size={16} />
+          <span>Create an Organization</span>
+        </button>
         {createOrgModal}
       </div>
     );
@@ -353,12 +299,10 @@ export const OrganizationDashboardPage: React.FC = () => {
             </select>
           </div>
 
-          {isPlatformAdmin && (
-            <button onClick={() => setShowCreateOrg(true)} className="btn btn-outline" style={{ fontSize: '0.85rem' }}>
-              <Building2 size={15} />
-              <span>New Organization</span>
-            </button>
-          )}
+          <button onClick={() => setShowCreateOrg(true)} className="btn btn-outline" style={{ fontSize: '0.85rem' }}>
+            <Building2 size={15} />
+            <span>New Organization</span>
+          </button>
 
           {isAdmin && (
             <button
@@ -661,7 +605,7 @@ export const OrganizationDashboardPage: React.FC = () => {
         </div>
       )}
 
-      {/* Modal: Create Organization (platform administrators only) */}
+      {/* Modal: Create Organization */}
       {createOrgModal}
     </div>
   );

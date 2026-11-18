@@ -59,7 +59,7 @@ export const RegisterPage: React.FC = () => {
             Create an Account
           </h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginTop: '0.25rem' }}>
-            Set up your profile. A platform administrator will add you to an organization.
+            Set up your profile, then create your first organization.
           </p>
         </div>
 

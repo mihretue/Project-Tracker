@@ -4,7 +4,6 @@ import * as request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { DataSource } from 'typeorm';
 import { AllExceptionsFilter } from '../src/common/filters/http-exception.filter';
-import { createPlatformAdmin, TestPlatformAdmin } from './helpers/platform-admin';
 
 interface TestUser {
   token: string;
@@ -16,7 +15,6 @@ describe('Last Organization ADMIN Protection (e2e)', () => {
 
   let app: INestApplication;
   let dataSource: DataSource;
-  let platformAdmin: TestPlatformAdmin;
 
   let owner: TestUser;
   let second: TestUser;
@@ -30,11 +28,12 @@ describe('Last Organization ADMIN Protection (e2e)', () => {
     return { token: res.body.accessToken as string, id: res.body.user.id as string };
   };
 
-  const createOrg = async (slug: string, initialAdminUserId: string): Promise<string> => {
+  // The creator becomes the organization's first (and only) ADMIN
+  const createOrg = async (slug: string, creator: TestUser): Promise<string> => {
     const res = await request(app.getHttpServer())
       .post('/api/organizations')
-      .set('Authorization', `Bearer ${platformAdmin.token}`)
-      .send({ name: `Org ${slug}`, slug, initialAdminUserId })
+      .set('Authorization', `Bearer ${creator.token}`)
+      .send({ name: `Org ${slug}`, slug })
       .expect(201);
     return res.body.id as string;
   };
@@ -83,7 +82,6 @@ describe('Last Organization ADMIN Protection (e2e)', () => {
     await dataSource.query('DELETE FROM "organizations"');
     await dataSource.query('DELETE FROM "users"');
 
-    platformAdmin = await createPlatformAdmin(app, dataSource, 'pa@last-admin.test');
     owner = await registerUser('owner@last-admin.test', 'Owner');
     second = await registerUser('second@last-admin.test', 'Second');
     plain = await registerUser('plain@last-admin.test', 'Plain');
@@ -96,7 +94,7 @@ describe('Last Organization ADMIN Protection (e2e)', () => {
   });
 
   it('1. The sole ADMIN cannot demote themselves (409) and stays ADMIN', async () => {
-    const orgId = await createOrg('solo-admin-org', owner.id);
+    const orgId = await createOrg('solo-admin-org', owner);
 
     const res = await setRole(orgId, owner, owner.id, 'MEMBER').expect(409);
     expect(res.body.message).toMatch(/at least one ADMIN/i);
@@ -104,14 +102,14 @@ describe('Last Organization ADMIN Protection (e2e)', () => {
   });
 
   it('2. Setting the sole ADMIN to ADMIN again is allowed (no-op)', async () => {
-    const orgId = await createOrg('noop-admin-org', owner.id);
+    const orgId = await createOrg('noop-admin-org', owner);
 
     await setRole(orgId, owner, owner.id, 'ADMIN').expect(200);
     expect(await adminIds(orgId)).toEqual([owner.id]);
   });
 
   it('3. A MEMBER still cannot change roles (403) and the ADMIN is unaffected', async () => {
-    const orgId = await createOrg('member-attempt-org', owner.id);
+    const orgId = await createOrg('member-attempt-org', owner);
     await addMember(orgId, owner, plain.id, 'MEMBER').expect(201);
 
     await setRole(orgId, plain, owner.id, 'MEMBER').expect(403);
@@ -119,7 +117,7 @@ describe('Last Organization ADMIN Protection (e2e)', () => {
   });
 
   it('4. Safe hand-over: promote the replacement first, then the old ADMIN may step down', async () => {
-    const orgId = await createOrg('handover-org', owner.id);
+    const orgId = await createOrg('handover-org', owner);
     await addMember(orgId, owner, second.id, 'MEMBER').expect(201);
 
     // Promoting never reduces the admin count, so it is always allowed
@@ -140,8 +138,8 @@ describe('Last Organization ADMIN Protection (e2e)', () => {
   });
 
   it('5. One organization\'s last-admin rule does not depend on admins elsewhere', async () => {
-    const orgX = await createOrg('scope-org-x', owner.id);
-    const orgY = await createOrg('scope-org-y', second.id);
+    const orgX = await createOrg('scope-org-x', owner);
+    const orgY = await createOrg('scope-org-y', second);
     await addMember(orgY, second, owner.id, 'ADMIN').expect(201); // owner is ADMIN in X and Y
 
     // In Y there are two admins: owner may step down there
@@ -155,7 +153,7 @@ describe('Last Organization ADMIN Protection (e2e)', () => {
     const rounds = 6;
 
     for (let i = 0; i < rounds; i += 1) {
-      const orgId = await createOrg(`race-org-${i}`, owner.id);
+      const orgId = await createOrg(`race-org-${i}`, owner);
       await addMember(orgId, owner, second.id, 'ADMIN').expect(201);
 
       const [r1, r2] = await Promise.all([
@@ -172,7 +170,7 @@ describe('Last Organization ADMIN Protection (e2e)', () => {
   });
 
   it('7. Concurrent self-demotions of both ADMINs leave exactly one ADMIN', async () => {
-    const orgId = await createOrg('race-self-org', owner.id);
+    const orgId = await createOrg('race-self-org', owner);
     await addMember(orgId, owner, second.id, 'ADMIN').expect(201);
 
     const [r1, r2] = await Promise.all([
@@ -185,7 +183,7 @@ describe('Last Organization ADMIN Protection (e2e)', () => {
   });
 
   it('8. Regression: promoting, demoting a non-last ADMIN and tenant isolation still work', async () => {
-    const orgId = await createOrg('regression-org', owner.id);
+    const orgId = await createOrg('regression-org', owner);
     await addMember(orgId, owner, second.id, 'MEMBER').expect(201);
 
     // Duplicate membership and unknown target are still rejected as before

@@ -10,9 +10,6 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { UsersService, SafeUser } from './users.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { PlatformRoles } from '../auth/decorators/platform-roles.decorator';
-import { PlatformRolesGuard } from '../auth/guards/platform-roles.guard';
-import { PlatformRole } from '../../common/enums/platform-role.enum';
 import { User } from './entities/user.entity';
 
 @ApiTags('Users')
@@ -26,14 +23,6 @@ export class UsersController {
   @UseGuards(JwtAuthGuard)
   getProfile(@CurrentUser() user: User): SafeUser {
     return this.usersService.toSafeUser(user);
-  }
-
-  @ApiOperation({ summary: 'List all users (PLATFORM_ADMIN only)' })
-  @Get()
-  @UseGuards(JwtAuthGuard, PlatformRolesGuard)
-  @PlatformRoles(PlatformRole.PLATFORM_ADMIN)
-  async findAll(): Promise<SafeUser[]> {
-    return this.usersService.findAll();
   }
 
   @ApiOperation({ summary: 'Get a user profile by ID (own profile only)' })
