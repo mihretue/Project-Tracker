@@ -1,5 +1,8 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { validateEnv } from './config/env.validation';
+import { resolveAuthRateLimit } from './config/rate-limit.config';
 import { DatabaseModule } from './database/database.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
@@ -15,6 +18,11 @@ import { AppService } from './app.service';
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: ['.env', '../../.env'],
+      validate: validateEnv,
+    }),
+    // Applied only where ThrottlerGuard is used (login and registration).
+    ThrottlerModule.forRootAsync({
+      useFactory: () => [resolveAuthRateLimit(process.env)],
     }),
     DatabaseModule,
     AuthModule,

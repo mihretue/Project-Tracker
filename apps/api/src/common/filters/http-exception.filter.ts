@@ -49,8 +49,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
         }
       }
     } else if (exception instanceof Error) {
+      // Details stay in the server log; clients only get the generic message so database or
+      // framework internals (table names, constraints, query text) are never disclosed.
       this.logger.error(`Unhandled Exception: ${exception.message}`, exception.stack);
-      message = exception.message;
     } else {
       this.logger.error('Unhandled non-error exception', String(exception));
     }

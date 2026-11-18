@@ -887,8 +887,15 @@ npm run dev:web
 | `POSTGRES_PASSWORD` | Database password | `postgres` |
 | `POSTGRES_DB` | Database name | `tenant_project_tracker` |
 | `POSTGRES_SSL` | Enable SSL database connection (`true` / `false`) | `false` |
-| `JWT_SECRET` | Secret key used to sign JWT bearer tokens | `dev-jwt-secret-key-32-chars-minimum` |
+| `JWT_SECRET` | **Required, no default.** Signs JWT bearer tokens. The API refuses to start if it is missing, shorter than 32 characters, or a placeholder. Generate: `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"` | *(none)* |
 | `JWT_EXPIRES_IN` | Token time-to-live | `1d` |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated browser origins allowed to call the API (exact match, no wildcard). Set it to the deployed frontend URL in production | `http://localhost:5173` outside production; none in production |
+| `AUTH_RATE_LIMIT_MAX` | Max login requests and max registration requests per client IP per window (each limited separately) | `10` |
+| `AUTH_RATE_LIMIT_WINDOW_MS` | Rate-limit window in milliseconds | `60000` |
+| `TRUST_PROXY` | Set to `1` behind one reverse proxy so rate limiting uses each client's real IP | *(unset)* |
+| `PLATFORM_ADMIN_EMAIL` / `PLATFORM_ADMIN_PASSWORD` | Read only by `npm run seed` to provision the first `PLATFORM_ADMIN` (password 12+ chars) | *(unset: step skipped)* |
+
+**Development vs production**: in development copy `apps/api/.env.example` to `apps/api/.env` and fill in `JWT_SECRET` (the defaults for CORS and rate limiting suit local use). In production set every variable in the host's secret/environment manager (never in a committed file), use a different `JWT_SECRET` from development, set `NODE_ENV=production`, `CORS_ALLOWED_ORIGINS` to the exact frontend origin, and `TRUST_PROXY=1` if the host puts a proxy in front of the API. Rotating `JWT_SECRET` invalidates all issued tokens.
 | `VITE_API_URL` | Base API URL consumed by React frontend | `http://localhost:3000/api` |
 
 ---
@@ -916,11 +923,14 @@ npm run build
 - **Zero-Trust Tenancy**: Database membership verification on every tenant-scoped operation.
 - **SQL Injection Prevention**: Parameterized queries via TypeORM and query runners; no string-concatenated SQL.
 - **Strict Payload Validation**: `ValidationPipe` with `whitelist: true` and `forbidNonWhitelisted: true` strips unexpected properties.
-- **CORS Configuration**: Explicit origin allowance and allowed methods.
+- **Startup Secret Validation**: no fallback JWT secret exists; the API will not start without a strong `JWT_SECRET`.
+- **Strict CORS**: only origins in `CORS_ALLOWED_ORIGINS` receive CORS headers; no wildcard, and credentialed cross-origin requests are not enabled (authentication uses the `Authorization` header, not cookies).
+- **Brute-Force Throttling**: `POST /auth/login` and `POST /auth/register` are limited per client IP (default 10 requests per minute each) and answer `429` with a `Retry-After` header beyond that.
+- **Query Validation**: the task `priority` filter accepts only `LOW`, `MEDIUM` or `HIGH`; anything else returns `400`.
 
 ### Recommended Production Enhancements
 1. **Refresh Token Rotation**: Transition from 1-day access tokens to 15-minute access tokens paired with rotated refresh tokens stored in HTTP-only, secure cookies.
-2. **Rate Limiting (Brute-Force Protection)**: Implement `@nestjs/throttler` on `/api/auth/login` and `/api/auth/register` to block IP-based brute-force attacks.
+2. **Distributed Rate Limiting**: the current limiter keeps counters in memory (fine for one instance). With several API instances, use a shared store such as Redis, and consider per-account lockout in addition to per-IP limits.
 3. **Audit Logging**: Establish an immutable `audit_logs` table recording tenant actions (user invitations, role changes, project deletions).
 4. **Soft Deletes**: Implement `@DeleteDateColumn` on `projects` and `tasks` to prevent catastrophic data loss from accidental deletions.
 5. **Security Headers**: Integrate `helmet` to inject `Content-Security-Policy`, `X-Frame-Options`, and `Strict-Transport-Security`.

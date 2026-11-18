@@ -1,5 +1,6 @@
 import { Controller, Post, Body, Get, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { ThrottlerGuard } from '@nestjs/throttler';
 import { AuthService, AuthResult } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -18,12 +19,14 @@ export class AuthController {
 
   @ApiOperation({ summary: 'Register a new user and organization' })
   @Post('register')
+  @UseGuards(ThrottlerGuard)
   async register(@Body() registerDto: RegisterDto): Promise<AuthResult> {
     return this.authService.register(registerDto);
   }
 
   @ApiOperation({ summary: 'Authenticate user with email and password' })
   @Post('login')
+  @UseGuards(ThrottlerGuard)
   @HttpCode(HttpStatus.OK)
   async login(@Body() loginDto: LoginDto): Promise<AuthResult> {
     return this.authService.login(loginDto);

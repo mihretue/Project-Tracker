@@ -1,12 +1,21 @@
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
+import { buildCorsOptions } from './config/cors.config';
 
 async function bootstrap(): Promise<void> {
   const logger = new Logger('Bootstrap');
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  // Behind a reverse proxy (Render, Railway, ...) set TRUST_PROXY=1 so rate limiting sees each
+  // client's real IP instead of the proxy's.
+  const trustProxy = process.env.TRUST_PROXY;
+  if (trustProxy) {
+    app.set('trust proxy', /^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy);
+  }
 
   const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
   const apiPrefix = process.env.API_PREFIX || 'api';
@@ -29,12 +38,12 @@ async function bootstrap(): Promise<void> {
     }),
   );
 
-  // Enable CORS for frontend application
-  app.enableCors({
-    origin: true,
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
-    credentials: true,
-  });
+  // CORS: only origins listed in CORS_ALLOWED_ORIGINS (see config/cors.config.ts)
+  const corsOptions = buildCorsOptions(process.env);
+  if (Array.isArray(corsOptions.origin) && corsOptions.origin.length === 0) {
+    logger.warn('CORS_ALLOWED_ORIGINS is not set: browsers on other origins will be blocked.');
+  }
+  app.enableCors(corsOptions);
 
   // Swagger OpenAPI documentation
   const swaggerConfig = new DocumentBuilder()

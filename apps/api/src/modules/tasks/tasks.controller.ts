@@ -8,6 +8,7 @@ import {
   Param,
   Query,
   ParseUUIDPipe,
+  ParseEnumPipe,
   UseGuards,
   BadRequestException,
 } from '@nestjs/common';
@@ -42,8 +43,9 @@ export class TasksController {
   @ApiQuery({ name: 'priority', required: false, enum: TaskPriority, description: 'Filter by priority (LOW, MEDIUM, HIGH)' })
   @Get()
   async findByProject(
-    @Query('projectId') projectId: string | undefined,
-    @Query('priority') priority: TaskPriority | undefined,
+    @Query('projectId', new ParseUUIDPipe({ optional: true })) projectId: string | undefined,
+    @Query('priority', new ParseEnumPipe(TaskPriority, { optional: true }))
+    priority: TaskPriority | undefined,
     @CurrentUser() user: User,
   ): Promise<Task[]> {
     if (!projectId) {

@@ -40,7 +40,7 @@ export class ProjectsController {
   @ApiQuery({ name: 'organizationId', required: true, description: 'Organization UUID' })
   @Get()
   async findAll(
-    @Query('organizationId') organizationId: string | undefined,
+    @Query('organizationId', new ParseUUIDPipe({ optional: true })) organizationId: string | undefined,
     @CurrentUser() user: User,
   ): Promise<Project[]> {
     if (!organizationId) {

@@ -15,10 +15,8 @@ import { UsersModule } from '../users/users.module';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
-        secret: configService.get<string>(
-          'JWT_SECRET',
-          'dev-jwt-secret-key-32-chars-minimum',
-        ),
+        // Presence and strength are enforced at startup by validateEnv (no fallback value).
+        secret: configService.getOrThrow<string>('JWT_SECRET'),
         signOptions: {
           expiresIn: configService.get<string>('JWT_EXPIRES_IN', '1d'),
         },

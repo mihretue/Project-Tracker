@@ -280,4 +280,44 @@ describe('Task Priority & Filtering (e2e)', () => {
 
     expect(breachRes.body.message).toContain('Access denied');
   });
+
+  describe('priority query validation', () => {
+    const listTasks = (query: string, token: string = tokenUserA) =>
+      request(app.getHttpServer())
+        .get(`/api/tasks?projectId=${projectAId}${query}`)
+        .set('Authorization', `Bearer ${token}`);
+
+    it('6. Rejects values outside LOW, MEDIUM, HIGH with 400 (not 500)', async () => {
+      for (const bad of ['URGENT', 'high', 'Medium', '', '0', 'HIGH%20', 'null', 'undefined']) {
+        const res = await listTasks(`&priority=${bad}`).expect(400);
+        expect(res.body.statusCode).toBe(400);
+      }
+    });
+
+    it('7. Rejects repeated or malformed priority parameters with 400', async () => {
+      await listTasks('&priority=LOW&priority=HIGH').expect(400);
+      await listTasks('&priority[]=LOW').expect(400);
+      await listTasks("&priority=HIGH'%20OR%20'1'='1").expect(400);
+    });
+
+    it('8. A missing priority returns all tasks of the project', async () => {
+      const res = await listTasks('').expect(200);
+      expect(res.body.length).toBeGreaterThanOrEqual(4);
+      const priorities = new Set(res.body.map((t: { priority: string }) => t.priority));
+      expect(priorities).toEqual(new Set(['LOW', 'MEDIUM', 'HIGH']));
+    });
+
+    it('9. Each valid priority returns only tasks with that priority', async () => {
+      for (const valid of Object.values(TaskPriority)) {
+        const res = await listTasks(`&priority=${valid}`).expect(200);
+        expect(res.body.length).toBeGreaterThan(0);
+        expect(res.body.every((t: { priority: string }) => t.priority === valid)).toBe(true);
+      }
+    });
+
+    it('10. Validation does not weaken tenant isolation: foreign users still get 403 for valid values', async () => {
+      await listTasks('&priority=LOW', tokenUserB).expect(403);
+      await listTasks('', tokenUserB).expect(403);
+    });
+  });
 });
