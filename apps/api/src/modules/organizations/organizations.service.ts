@@ -6,7 +6,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, QueryFailedError } from 'typeorm';
 import { Organization } from './entities/organization.entity';
 import { OrganizationMembership } from './entities/organization-membership.entity';
 import { User } from '../users/entities/user.entity';
@@ -14,6 +14,21 @@ import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { AddMemberDto } from './dto/add-member.dto';
 import { MembershipRole } from '../../common/enums/role.enum';
 import { PaginationDto, PaginatedResponse } from '../../common/dto/pagination.dto';
+
+const PG_UNIQUE_VIOLATION = '23505';
+
+/** True for a PostgreSQL unique-constraint violation on the organization slug. */
+function isSlugUniqueViolation(error: unknown): boolean {
+  if (!(error instanceof QueryFailedError)) {
+    return false;
+  }
+  const driverError = error.driverError as { code?: string; constraint?: string } | undefined;
+  return (
+    driverError?.code === PG_UNIQUE_VIOLATION &&
+    typeof driverError.constraint === 'string' &&
+    driverError.constraint.toLowerCase().includes('slug')
+  );
+}
 
 export interface UserOrganizationView {
   id: string;
@@ -58,35 +73,48 @@ export class OrganizationsService {
     creator: User,
   ): Promise<UserOrganizationView> {
     const slug = dto.slug.toLowerCase().trim();
+    const slugTakenMessage = `Organization with slug '${slug}' already exists`;
+
+    // Fast path for the common case; the unique constraint below remains the source of truth
     const existing = await this.orgRepository.findOne({ where: { slug } });
     if (existing) {
-      throw new ConflictException(`Organization with slug '${slug}' already exists`);
+      throw new ConflictException(slugTakenMessage);
     }
 
-    // Execute in transaction to ensure atomicity of Organization + Admin Membership
-    return this.dataSource.transaction(async (manager) => {
-      const org = manager.create(Organization, {
-        name: dto.name.trim(),
-        slug,
-      });
-      const savedOrg = await manager.save(org);
+    try {
+      // Execute in transaction to ensure atomicity of Organization + Admin Membership
+      return await this.dataSource.transaction(async (manager) => {
+        const org = manager.create(Organization, {
+          name: dto.name.trim(),
+          slug,
+        });
+        const savedOrg = await manager.save(org);
 
-      const membership = manager.create(OrganizationMembership, {
-        organizationId: savedOrg.id,
-        userId: creator.id,
-        role: MembershipRole.ADMIN,
-      });
-      await manager.save(membership);
+        const membership = manager.create(OrganizationMembership, {
+          organizationId: savedOrg.id,
+          userId: creator.id,
+          role: MembershipRole.ADMIN,
+        });
+        await manager.save(membership);
 
-      return {
-        id: savedOrg.id,
-        name: savedOrg.name,
-        slug: savedOrg.slug,
-        role: MembershipRole.ADMIN,
-        createdAt: savedOrg.createdAt,
-        updatedAt: savedOrg.updatedAt,
-      };
-    });
+        return {
+          id: savedOrg.id,
+          name: savedOrg.name,
+          slug: savedOrg.slug,
+          role: MembershipRole.ADMIN,
+          createdAt: savedOrg.createdAt,
+          updatedAt: savedOrg.updatedAt,
+        };
+      });
+    } catch (error: unknown) {
+      // A concurrent request can take the slug between the check above and the insert. The
+      // transaction has already rolled back (no organization and no membership remain), and the
+      // client gets a 409 instead of a raw database error.
+      if (isSlugUniqueViolation(error)) {
+        throw new ConflictException(slugTakenMessage);
+      }
+      throw error;
+    }
   }
 
   async findUserOrganizations(
@@ -99,7 +127,8 @@ export class OrganizationsService {
     const [memberships, totalCount] = await this.membershipRepository.findAndCount({
       where: { userId },
       relations: ['organization'],
-      order: { createdAt: 'ASC' },
+      // id is a tiebreaker so pages stay stable when memberships share a timestamp
+      order: { createdAt: 'ASC', id: 'ASC' },
       take,
       skip,
     });

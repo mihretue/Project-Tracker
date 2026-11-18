@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { api } from '../services/api';
+import { fetchAllPages } from '../services/organizations';
 
 export interface User {
   id: string;
@@ -38,6 +39,17 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+type OrganizationListResponse = Organization[] | { items?: Organization[]; count: number };
+
+/** Loads every organization of the signed-in user, following the API's pagination. */
+const loadAllOrganizations = (): Promise<Organization[]> =>
+  fetchAllPages<Organization>(async (take, skip) => {
+    const res = await api.get<OrganizationListResponse>('/organizations', { params: { take, skip } });
+    return Array.isArray(res.data)
+      ? { items: res.data, count: res.data.length }
+      : { items: res.data.items ?? [], count: res.data.count };
+  });
+
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(() => {
     const saved = localStorage.getItem('user');
@@ -53,8 +65,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const fetchOrganizations = async (): Promise<Organization[]> => {
     try {
-      const res = await api.get<Organization[] | { items: Organization[]; count: number }>('/organizations');
-      const orgs = Array.isArray(res.data) ? res.data : res.data.items || [];
+      const orgs = await loadAllOrganizations();
       setOrganizations(orgs);
 
       // Select first organization or retain current if still valid
@@ -109,11 +120,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setToken(accessToken);
       setUser(loggedUser);
 
-      // Fetch user's organizations
-      const orgsRes = await api.get<Organization[] | { items: Organization[]; count: number }>('/organizations', {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const orgs = Array.isArray(orgsRes.data) ? orgsRes.data : orgsRes.data.items || [];
+      // Fetch all of the user's organizations (the token was just stored for the interceptor)
+      const orgs = await loadAllOrganizations();
       setOrganizations(orgs);
       if (orgs.length > 0) {
         setCurrentOrg(orgs[0]);

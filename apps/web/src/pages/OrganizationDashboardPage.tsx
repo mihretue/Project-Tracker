@@ -67,6 +67,20 @@ export const OrganizationDashboardPage: React.FC = () => {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // The create-organization dialog always opens and closes with a clean form
+  const resetCreateOrgForm = (): void => {
+    setNewOrgName('');
+    setCreateOrgError(null);
+  };
+  const openCreateOrg = (): void => {
+    resetCreateOrgForm();
+    setShowCreateOrg(true);
+  };
+  const closeCreateOrg = (): void => {
+    resetCreateOrgForm();
+    setShowCreateOrg(false);
+  };
+
   const loadData = async (): Promise<void> => {
     if (!currentOrg) return;
     setIsLoadingData(true);
@@ -97,7 +111,7 @@ export const OrganizationDashboardPage: React.FC = () => {
   useEffect(() => {
     const state = location.state as { openCreateOrg?: boolean } | null;
     if (state?.openCreateOrg) {
-      setShowCreateOrg(true);
+      openCreateOrg();
       navigate(location.pathname, { replace: true, state: null });
     }
   }, [location.state]);
@@ -172,8 +186,7 @@ export const OrganizationDashboardPage: React.FC = () => {
         name: newOrgName,
         slug: slug || `org-${Date.now()}`,
       });
-      setShowCreateOrg(false);
-      setNewOrgName('');
+      closeCreateOrg();
       // Make the new organization selectable and switch to it
       addOrganization(res.data);
     } catch (err: unknown) {
@@ -188,11 +201,6 @@ export const OrganizationDashboardPage: React.FC = () => {
     } finally {
       setIsSubmitting(false);
     }
-  };
-
-  const closeCreateOrg = (): void => {
-    setShowCreateOrg(false);
-    setCreateOrgError(null);
   };
 
   const createOrgModal =
@@ -258,7 +266,7 @@ export const OrganizationDashboardPage: React.FC = () => {
         <p style={{ color: 'var(--text-secondary)', margin: '1rem 0' }}>
           You do not belong to any organization yet. Create one to get started; you will be its administrator.
         </p>
-        <button onClick={() => setShowCreateOrg(true)} className="btn btn-primary">
+        <button onClick={openCreateOrg} className="btn btn-primary">
           <Plus size={16} />
           <span>Create an Organization</span>
         </button>
@@ -299,7 +307,7 @@ export const OrganizationDashboardPage: React.FC = () => {
             </select>
           </div>
 
-          <button onClick={() => setShowCreateOrg(true)} className="btn btn-outline" style={{ fontSize: '0.85rem' }}>
+          <button onClick={openCreateOrg} className="btn btn-outline" style={{ fontSize: '0.85rem' }}>
             <Building2 size={15} />
             <span>New Organization</span>
           </button>

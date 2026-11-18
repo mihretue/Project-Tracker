@@ -14,7 +14,7 @@
     "build": "npm run build:api && npm run build:web",
     "build:api": "npm --workspace=@tenant-tracker/api run build",
     "build:web": "npm --workspace=@tenant-tracker/web run build",
-    "test": "npm run test:api",
+    "test": "npm run test:api && npm run test:web",
     "test:api": "npm --workspace=@tenant-tracker/api run test",
     "test:e2e": "npm --workspace=@tenant-tracker/api run test:e2e",
     "typecheck": "npm --workspace=@tenant-tracker/api run typecheck && npm --workspace=@tenant-tracker/web run typecheck",
@@ -22,7 +22,8 @@
     "docker:db:down": "docker compose down",
     "migration:run": "npm --workspace=@tenant-tracker/api run migration:run",
     "migration:revert": "npm --workspace=@tenant-tracker/api run migration:revert",
-    "seed": "npm --workspace=@tenant-tracker/api run seed"
+    "seed": "npm --workspace=@tenant-tracker/api run seed",
+    "test:web": "npm --workspace=@tenant-tracker/web run test"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"
