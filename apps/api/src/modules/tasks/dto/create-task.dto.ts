@@ -7,13 +7,15 @@ import {
   Matches,
   MaxLength,
 } from 'class-validator';
-import { Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { TaskStatus } from '../../../common/enums/task-status.enum';
 import { TaskPriority } from '../../../common/enums/task-priority.enum';
+import { Trim } from '../../../common/validation/trim';
+import { MoneyInput, MONEY_PATTERN, moneyMessage } from '../../../common/validation/money';
 
 export class CreateTaskDto {
   @ApiProperty({ example: 'Implement biometric authentication', description: 'Task title' })
+  @Trim()
   @IsString()
   @IsNotEmpty({ message: 'Task title is required' })
   @MaxLength(250)
@@ -45,11 +47,9 @@ export class CreateTaskDto {
     example: '45000.00',
     description: 'Estimated task cost in ETB (decimal string with up to 2 decimal places)',
   })
-  @Transform(({ value }) => (typeof value === 'number' ? value.toFixed(2) : String(value)))
+  @MoneyInput()
   @IsString()
-  @Matches(/^\d+(\.\d{1,2})?$/, {
-    message: 'Estimated cost must be a non-negative decimal with up to 2 decimal places (e.g. 45000.00)',
-  })
+  @Matches(MONEY_PATTERN, { message: moneyMessage('Estimated cost') })
   estimatedCost: string;
 
   @ApiProperty({ example: 'b2c3d4e5-f6a7-8b9c-0d1e-2f3a4b5c6d7e', description: 'Project UUID' })

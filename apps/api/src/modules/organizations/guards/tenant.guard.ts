@@ -7,6 +7,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { isUUID } from 'class-validator';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { OrganizationMembership } from '../entities/organization-membership.entity';
@@ -49,6 +50,12 @@ export class TenantGuard implements CanActivate {
 
     if (!organizationId) {
       throw new BadRequestException('Organization identifier could not be resolved from request');
+    }
+
+    // Reject malformed identifiers before they reach the database (an invalid uuid would
+    // otherwise surface as an unhandled 500). Runs before the membership lookup, so it grants nothing.
+    if (typeof organizationId !== 'string' || !isUUID(organizationId)) {
+      throw new BadRequestException('Organization identifier must be a valid UUID');
     }
 
     // Verify membership in database for this specific user and organization

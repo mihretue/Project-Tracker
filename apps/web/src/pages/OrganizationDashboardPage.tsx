@@ -12,11 +12,18 @@ import {
   UserPlus,
   Loader2,
   Users,
+  Edit2,
+  Trash2,
 } from 'lucide-react';
 import { StatCard } from '../components/StatCard';
+import { DialogError } from '../components/DialogError';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { useAuth, Organization } from '../context/AuthContext';
 import { api } from '../services/api';
 import axios from 'axios';
+import { describeApiError } from '../services/errors';
+import { validateProjectInput } from '../services/validation';
+import { notifyProjectsChanged } from '../services/projectEvents';
 
 interface MemberView {
   id: string;
@@ -42,7 +49,7 @@ interface ProjectView {
 }
 
 export const OrganizationDashboardPage: React.FC = () => {
-  const { currentOrg, organizations, switchOrganization, addOrganization } = useAuth();
+  const { user, currentOrg, organizations, switchOrganization, addOrganization, refreshOrganizations } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -65,7 +72,60 @@ export const OrganizationDashboardPage: React.FC = () => {
   const [newOrgName, setNewOrgName] = useState('');
   const [createOrgError, setCreateOrgError] = useState<string | null>(null);
 
+  // Admin management dialogs. Only one dialog is open at a time, so they share one in-dialog error.
+  const [dialogError, setDialogError] = useState<string | null>(null);
+  const [editingProject, setEditingProject] = useState<ProjectView | null>(null);
+  const [editProjectName, setEditProjectName] = useState('');
+  const [editProjectBudget, setEditProjectBudget] = useState('');
+  const [deletingProject, setDeletingProject] = useState<ProjectView | null>(null);
+  const [roleTarget, setRoleTarget] = useState<MemberView | null>(null);
+  const [roleValue, setRoleValue] = useState<'ADMIN' | 'MEMBER'>('MEMBER');
+
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const openAddMember = (): void => {
+    setDialogError(null);
+    setShowAddMember(true);
+  };
+  const closeAddMember = (): void => {
+    setDialogError(null);
+    setShowAddMember(false);
+  };
+  const openAddProject = (): void => {
+    setDialogError(null);
+    setShowAddProject(true);
+  };
+  const closeAddProject = (): void => {
+    setDialogError(null);
+    setShowAddProject(false);
+  };
+  const openEditProject = (p: ProjectView): void => {
+    setDialogError(null);
+    setEditProjectName(p.name);
+    setEditProjectBudget(p.budget);
+    setEditingProject(p);
+  };
+  const closeEditProject = (): void => {
+    setDialogError(null);
+    setEditingProject(null);
+  };
+  const openDeleteProject = (p: ProjectView): void => {
+    setDialogError(null);
+    setDeletingProject(p);
+  };
+  const closeDeleteProject = (): void => {
+    setDialogError(null);
+    setDeletingProject(null);
+  };
+  const openChangeRole = (m: MemberView): void => {
+    setDialogError(null);
+    setRoleValue(m.role);
+    setRoleTarget(m);
+  };
+  const closeChangeRole = (): void => {
+    setDialogError(null);
+    setRoleTarget(null);
+  };
 
   // The create-organization dialog always opens and closes with a clean form
   const resetCreateOrgForm = (): void => {
@@ -118,24 +178,20 @@ export const OrganizationDashboardPage: React.FC = () => {
 
   const handleAddMember = async (e: FormEvent): Promise<void> => {
     e.preventDefault();
-    if (!currentOrg) return;
+    if (!currentOrg || isSubmitting) return;
     setIsSubmitting(true);
-    setActionError(null);
+    setDialogError(null);
 
     try {
       await api.post(`/organizations/${currentOrg.id}/members`, {
-        email: newMemberEmail,
+        email: newMemberEmail.trim(),
         role: newMemberRole,
       });
-      setShowAddMember(false);
+      closeAddMember();
       setNewMemberEmail('');
       await loadData();
     } catch (err: unknown) {
-      if (axios.isAxiosError(err) && err.response?.data?.message) {
-        setActionError(String(err.response.data.message));
-      } else {
-        setActionError('Failed to add member.');
-      }
+      setDialogError(describeApiError(err, 'Failed to add member.'));
     } finally {
       setIsSubmitting(false);
     }
@@ -143,28 +199,99 @@ export const OrganizationDashboardPage: React.FC = () => {
 
   const handleCreateProject = async (e: FormEvent): Promise<void> => {
     e.preventDefault();
-    if (!currentOrg) return;
+    if (!currentOrg || isSubmitting) return;
+    const invalid = validateProjectInput(newProjectName, newProjectBudget);
+    if (invalid) {
+      setDialogError(invalid);
+      return;
+    }
     setIsSubmitting(true);
-    setActionError(null);
+    setDialogError(null);
 
     try {
       await api.post('/projects', {
-        name: newProjectName,
+        name: newProjectName.trim(),
         description: newProjectDesc,
-        budget: newProjectBudget,
+        budget: newProjectBudget.trim(),
         organizationId: currentOrg.id,
       });
-      setShowAddProject(false);
+      closeAddProject();
       setNewProjectName('');
       setNewProjectDesc('');
       setNewProjectBudget('100000.00');
+      notifyProjectsChanged();
       await loadData();
     } catch (err: unknown) {
-      if (axios.isAxiosError(err) && err.response?.data?.message) {
-        setActionError(String(err.response.data.message));
-      } else {
-        setActionError('Failed to create project.');
+      setDialogError(describeApiError(err, 'Failed to create project.'));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleEditProject = async (e: FormEvent): Promise<void> => {
+    e.preventDefault();
+    if (!editingProject || isSubmitting) return;
+    const invalid = validateProjectInput(editProjectName, editProjectBudget);
+    if (invalid) {
+      setDialogError(invalid);
+      return;
+    }
+    setIsSubmitting(true);
+    setDialogError(null);
+
+    try {
+      await api.patch(`/projects/${editingProject.id}`, {
+        name: editProjectName.trim(),
+        budget: editProjectBudget.trim(),
+      });
+      closeEditProject();
+      notifyProjectsChanged();
+      await loadData();
+    } catch (err: unknown) {
+      setDialogError(describeApiError(err, 'Failed to update project.'));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteProject = async (): Promise<void> => {
+    if (!deletingProject || isSubmitting) return;
+    setIsSubmitting(true);
+    setDialogError(null);
+
+    try {
+      await api.delete(`/projects/${deletingProject.id}`);
+      closeDeleteProject();
+      notifyProjectsChanged();
+      await loadData();
+    } catch (err: unknown) {
+      setDialogError(describeApiError(err, 'Failed to delete project.'));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleChangeRole = async (e: FormEvent): Promise<void> => {
+    e.preventDefault();
+    if (!currentOrg || !roleTarget || isSubmitting) return;
+    if (roleValue !== 'ADMIN' && roleValue !== 'MEMBER') {
+      setDialogError('Role must be either ADMIN or MEMBER.');
+      return;
+    }
+    setIsSubmitting(true);
+    setDialogError(null);
+
+    try {
+      await api.patch(`/organizations/${currentOrg.id}/members/${roleTarget.userId}`, { role: roleValue });
+      const changedOwnRole = roleTarget.userId === user?.id;
+      closeChangeRole();
+      await loadData();
+      // Own role changed: re-read memberships so the page's permissions follow the server
+      if (changedOwnRole) {
+        await refreshOrganizations();
       }
+    } catch (err: unknown) {
+      setDialogError(describeApiError(err, 'Failed to change the member role.'));
     } finally {
       setIsSubmitting(false);
     }
@@ -314,7 +441,7 @@ export const OrganizationDashboardPage: React.FC = () => {
 
           {isAdmin && (
             <button
-              onClick={() => setShowAddProject(true)}
+              onClick={openAddProject}
               className="btn btn-primary"
               style={{ fontSize: '0.85rem' }}
             >
@@ -390,7 +517,7 @@ export const OrganizationDashboardPage: React.FC = () => {
           </div>
           {isAdmin && (
             <button
-              onClick={() => setShowAddProject(true)}
+              onClick={openAddProject}
               className="btn btn-outline"
               style={{ fontSize: '0.85rem' }}
             >
@@ -429,6 +556,30 @@ export const OrganizationDashboardPage: React.FC = () => {
                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '1.25rem', minHeight: '40px' }}>
                   {project.description || 'No description provided.'}
                 </p>
+                {isAdmin && (
+                  <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.85rem' }}>
+                    <button
+                      type="button"
+                      onClick={() => openEditProject(project)}
+                      className="btn btn-outline"
+                      style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem', gap: '0.3rem' }}
+                      aria-label={`Edit project ${project.name}`}
+                    >
+                      <Edit2 size={12} />
+                      <span>Edit</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openDeleteProject(project)}
+                      className="btn btn-outline"
+                      style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem', gap: '0.3rem', color: '#f87171' }}
+                      aria-label={`Delete project ${project.name}`}
+                    >
+                      <Trash2 size={12} />
+                      <span>Delete</span>
+                    </button>
+                  </div>
+                )}
                 <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
                     <TrendingUp size={14} />
@@ -469,7 +620,7 @@ export const OrganizationDashboardPage: React.FC = () => {
           </div>
           {isAdmin && (
             <button
-              onClick={() => setShowAddMember(true)}
+              onClick={openAddMember}
               className="btn btn-outline"
               style={{ fontSize: '0.85rem' }}
             >
@@ -487,6 +638,7 @@ export const OrganizationDashboardPage: React.FC = () => {
                 <th>Email</th>
                 <th>Role</th>
                 <th>Joined</th>
+                {isAdmin && <th>Actions</th>}
               </tr>
             </thead>
             <tbody>
@@ -504,6 +656,20 @@ export const OrganizationDashboardPage: React.FC = () => {
                   <td style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
                     {new Date(m.createdAt).toLocaleDateString()}
                   </td>
+                  {isAdmin && (
+                    <td>
+                      <button
+                        type="button"
+                        onClick={() => openChangeRole(m)}
+                        className="btn btn-outline"
+                        style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem', gap: '0.3rem' }}
+                        aria-label={`Change role of ${m.user.firstName} ${m.user.lastName}`}
+                      >
+                        <Shield size={12} />
+                        <span>Change role</span>
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -516,6 +682,7 @@ export const OrganizationDashboardPage: React.FC = () => {
         <div className="auth-wrapper" style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 100 }}>
           <div className="auth-card" style={{ maxWidth: 450 }}>
             <h2 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '1rem' }}>Add Organization Member</h2>
+            <DialogError message={dialogError} />
             <form onSubmit={handleAddMember}>
               <div className="form-group">
                 <label className="form-label">User Email Address</label>
@@ -542,7 +709,7 @@ export const OrganizationDashboardPage: React.FC = () => {
               <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.25rem' }}>
                 <button
                   type="button"
-                  onClick={() => setShowAddMember(false)}
+                  onClick={closeAddMember}
                   className="btn btn-outline"
                   style={{ flex: 1 }}
                 >
@@ -562,6 +729,7 @@ export const OrganizationDashboardPage: React.FC = () => {
         <div className="auth-wrapper" style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 100 }}>
           <div className="auth-card" style={{ maxWidth: 480 }}>
             <h2 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '1rem' }}>Create New Project</h2>
+            <DialogError message={dialogError} />
             <form onSubmit={handleCreateProject}>
               <div className="form-group">
                 <label className="form-label">Project Name</label>
@@ -598,7 +766,7 @@ export const OrganizationDashboardPage: React.FC = () => {
               <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.25rem' }}>
                 <button
                   type="button"
-                  onClick={() => setShowAddProject(false)}
+                  onClick={closeAddProject}
                   className="btn btn-outline"
                   style={{ flex: 1 }}
                 >
@@ -606,6 +774,102 @@ export const OrganizationDashboardPage: React.FC = () => {
                 </button>
                 <button type="submit" className="btn btn-primary" style={{ flex: 1 }} disabled={isSubmitting}>
                   {isSubmitting ? 'Creating...' : 'Create Project'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Edit Project */}
+      {editingProject && (
+        <div className="auth-wrapper" role="dialog" aria-label="Edit Project" style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 100 }}>
+          <div className="auth-card" style={{ maxWidth: 480 }}>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '1rem' }}>Edit Project</h2>
+            <DialogError message={dialogError} />
+            <form onSubmit={handleEditProject}>
+              <div className="form-group">
+                <label className="form-label" htmlFor="edit-project-name">Project Name</label>
+                <input
+                  id="edit-project-name"
+                  type="text"
+                  className="form-input"
+                  value={editProjectName}
+                  onChange={(e) => setEditProjectName(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label" htmlFor="edit-project-budget">ETB Budget (Exact 2-decimal format)</label>
+                <input
+                  id="edit-project-budget"
+                  type="text"
+                  className="form-input"
+                  value={editProjectBudget}
+                  onChange={(e) => setEditProjectBudget(e.target.value)}
+                  required
+                />
+              </div>
+              <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.25rem' }}>
+                <button type="button" onClick={closeEditProject} className="btn btn-outline" style={{ flex: 1 }} disabled={isSubmitting}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary" style={{ flex: 1 }} disabled={isSubmitting}>
+                  {isSubmitting ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Delete Project (confirmation) */}
+      {deletingProject && (
+        <ConfirmDialog
+          title="Delete Project"
+          message={
+            <>
+              Delete <strong>{deletingProject.name}</strong>? All of its tasks will be permanently deleted as well.
+              This cannot be undone.
+            </>
+          }
+          confirmLabel="Delete Project"
+          busyLabel="Deleting..."
+          isBusy={isSubmitting}
+          error={dialogError}
+          onConfirm={() => void handleDeleteProject()}
+          onCancel={closeDeleteProject}
+        />
+      )}
+
+      {/* Modal: Change Member Role */}
+      {roleTarget && (
+        <div className="auth-wrapper" role="dialog" aria-label="Change Member Role" style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 100 }}>
+          <div className="auth-card" style={{ maxWidth: 450 }}>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '0.5rem' }}>Change Member Role</h2>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '1rem' }}>
+              {roleTarget.user.firstName} {roleTarget.user.lastName} ({roleTarget.user.email})
+            </p>
+            <DialogError message={dialogError} />
+            <form onSubmit={handleChangeRole}>
+              <div className="form-group">
+                <label className="form-label" htmlFor="member-role">Role</label>
+                <select
+                  id="member-role"
+                  className="form-input"
+                  value={roleValue}
+                  onChange={(e) => setRoleValue(e.target.value === 'ADMIN' ? 'ADMIN' : 'MEMBER')}
+                >
+                  <option value="MEMBER">MEMBER (View projects, manage tasks)</option>
+                  <option value="ADMIN">ADMIN (Full organization management)</option>
+                </select>
+              </div>
+              <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.25rem' }}>
+                <button type="button" onClick={closeChangeRole} className="btn btn-outline" style={{ flex: 1 }} disabled={isSubmitting}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary" style={{ flex: 1 }} disabled={isSubmitting}>
+                  {isSubmitting ? 'Saving...' : 'Save Role'}
                 </button>
               </div>
             </form>

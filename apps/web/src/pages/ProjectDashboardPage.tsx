@@ -11,12 +11,17 @@ import {
   FolderKanban,
   CheckCircle2,
   Filter,
+  Trash2,
   Edit2,
 } from 'lucide-react';
 import { StatCard } from '../components/StatCard';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import axios from 'axios';
+import { DialogError } from '../components/DialogError';
+import { ConfirmDialog } from '../components/ConfirmDialog';
+import { describeApiError } from '../services/errors';
+import { validateTaskInput } from '../services/validation';
 
 interface ProjectItem {
   id: string;
@@ -40,6 +45,7 @@ interface TaskItem {
 
 export const ProjectDashboardPage: React.FC = () => {
   const { currentOrg } = useAuth();
+  const isAdmin = currentOrg?.role === 'ADMIN';
   const location = useLocation();
 
   const [projects, setProjects] = useState<ProjectItem[]>([]);
@@ -48,6 +54,9 @@ export const ProjectDashboardPage: React.FC = () => {
   const [priorityFilter, setPriorityFilter] = useState<'ALL' | 'LOW' | 'MEDIUM' | 'HIGH'>('ALL');
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  // Errors for the dialog that is currently open (add task, edit task, delete task); shown inside it
+  const [dialogError, setDialogError] = useState<string | null>(null);
+  const [deletingTask, setDeletingTask] = useState<TaskItem | null>(null);
 
   // New task form state
   const [showAddTask, setShowAddTask] = useState(false);
@@ -109,7 +118,8 @@ export const ProjectDashboardPage: React.FC = () => {
     }
   }, [location.state, projects]);
 
-  // Load tasks when selected project or priority filter changes
+  // Load ALL tasks of the selected project. The priority filter only narrows the displayed rows;
+  // budget figures are always computed from the complete task list.
   useEffect(() => {
     const loadTasks = async (): Promise<void> => {
       if (!selectedProjectId) {
@@ -117,8 +127,7 @@ export const ProjectDashboardPage: React.FC = () => {
         return;
       }
       try {
-        const filterQuery = priorityFilter !== 'ALL' ? `&priority=${priorityFilter}` : '';
-        const res = await api.get<TaskItem[]>(`/tasks?projectId=${selectedProjectId}${filterQuery}`);
+        const res = await api.get<TaskItem[]>(`/tasks?projectId=${selectedProjectId}`);
         setTasks(res.data);
       } catch (err: unknown) {
         if (axios.isAxiosError(err) && err.response?.data?.message) {
@@ -128,25 +137,69 @@ export const ProjectDashboardPage: React.FC = () => {
     };
 
     void loadTasks();
-  }, [selectedProjectId, priorityFilter]);
+  }, [selectedProjectId]);
+
+  const openAddTask = (): void => {
+    setDialogError(null);
+    setShowAddTask(true);
+  };
+  const closeAddTask = (): void => {
+    setDialogError(null);
+    setShowAddTask(false);
+  };
+  const closeEditTask = (): void => {
+    setDialogError(null);
+    setEditingTask(null);
+  };
+  const openDeleteTask = (task: TaskItem): void => {
+    setDialogError(null);
+    setDeletingTask(task);
+  };
+  const closeDeleteTask = (): void => {
+    setDialogError(null);
+    setDeletingTask(null);
+  };
+
+  const handleDeleteTask = async (): Promise<void> => {
+    if (!deletingTask || !selectedProjectId || isSubmitting) return;
+    setIsSubmitting(true);
+    setDialogError(null);
+
+    try {
+      await api.delete(`/tasks/${deletingTask.id}`);
+      closeDeleteTask();
+      // Reload the full list so rows and the budget figures reflect the deletion
+      const res = await api.get<TaskItem[]>(`/tasks?projectId=${selectedProjectId}`);
+      setTasks(res.data);
+    } catch (err: unknown) {
+      setDialogError(describeApiError(err, 'Failed to delete task.'));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const handleCreateTask = async (e: FormEvent): Promise<void> => {
     e.preventDefault();
-    if (!selectedProjectId) return;
+    if (!selectedProjectId || isSubmitting) return;
+    const invalid = validateTaskInput(newTaskTitle, newTaskCost);
+    if (invalid) {
+      setDialogError(invalid);
+      return;
+    }
     setIsSubmitting(true);
-    setErrorMsg(null);
+    setDialogError(null);
 
     try {
       await api.post('/tasks', {
-        title: newTaskTitle,
+        title: newTaskTitle.trim(),
         description: newTaskDesc,
         status: newTaskStatus,
         priority: newTaskPriority,
-        estimatedCost: newTaskCost,
+        estimatedCost: newTaskCost.trim(),
         projectId: selectedProjectId,
       });
 
-      setShowAddTask(false);
+      closeAddTask();
       setNewTaskTitle('');
       setNewTaskDesc('');
       setNewTaskStatus('TODO');
@@ -154,21 +207,17 @@ export const ProjectDashboardPage: React.FC = () => {
       setNewTaskCost('15000.00');
 
       // Refresh tasks
-      const filterQuery = priorityFilter !== 'ALL' ? `&priority=${priorityFilter}` : '';
-      const res = await api.get<TaskItem[]>(`/tasks?projectId=${selectedProjectId}${filterQuery}`);
+      const res = await api.get<TaskItem[]>(`/tasks?projectId=${selectedProjectId}`);
       setTasks(res.data);
     } catch (err: unknown) {
-      if (axios.isAxiosError(err) && err.response?.data?.message) {
-        setErrorMsg(String(err.response.data.message));
-      } else {
-        setErrorMsg('Failed to create task.');
-      }
+      setDialogError(describeApiError(err, 'Failed to create task.'));
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleOpenEdit = (task: TaskItem): void => {
+    setDialogError(null);
     setEditingTask(task);
     setEditTitle(task.title);
     setEditDesc(task.description || '');
@@ -179,31 +228,31 @@ export const ProjectDashboardPage: React.FC = () => {
 
   const handleUpdateTask = async (e: FormEvent): Promise<void> => {
     e.preventDefault();
-    if (!editingTask || !selectedProjectId) return;
+    if (!editingTask || !selectedProjectId || isSubmitting) return;
+    const invalid = validateTaskInput(editTitle, editCost);
+    if (invalid) {
+      setDialogError(invalid);
+      return;
+    }
     setIsSubmitting(true);
-    setErrorMsg(null);
+    setDialogError(null);
 
     try {
       await api.patch(`/tasks/${editingTask.id}`, {
-        title: editTitle,
+        title: editTitle.trim(),
         description: editDesc,
         status: editStatus,
         priority: editPriority,
-        estimatedCost: editCost,
+        estimatedCost: editCost.trim(),
       });
 
-      setEditingTask(null);
+      closeEditTask();
 
       // Refresh tasks
-      const filterQuery = priorityFilter !== 'ALL' ? `&priority=${priorityFilter}` : '';
-      const res = await api.get<TaskItem[]>(`/tasks?projectId=${selectedProjectId}${filterQuery}`);
+      const res = await api.get<TaskItem[]>(`/tasks?projectId=${selectedProjectId}`);
       setTasks(res.data);
     } catch (err: unknown) {
-      if (axios.isAxiosError(err) && err.response?.data?.message) {
-        setErrorMsg(String(err.response.data.message));
-      } else {
-        setErrorMsg('Failed to update task.');
-      }
+      setDialogError(describeApiError(err, 'Failed to update task.'));
     } finally {
       setIsSubmitting(false);
     }
@@ -211,6 +260,7 @@ export const ProjectDashboardPage: React.FC = () => {
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId);
   const projectBudgetETB = parseFloat(selectedProject?.budget || '0');
+  const visibleTasks = priorityFilter === 'ALL' ? tasks : tasks.filter((t) => t.priority === priorityFilter);
   const totalEstimatedCost = tasks.reduce((acc, t) => acc + parseFloat(t.estimatedCost || '0'), 0);
   const remainingBudget = projectBudgetETB - totalEstimatedCost;
   const budgetUtilization = projectBudgetETB > 0
@@ -299,7 +349,7 @@ export const ProjectDashboardPage: React.FC = () => {
           )}
 
           {selectedProject && (
-            <button onClick={() => setShowAddTask(true)} className="btn btn-primary" style={{ fontSize: '0.85rem' }}>
+            <button onClick={openAddTask} className="btn btn-primary" style={{ fontSize: '0.85rem' }}>
               <Plus size={16} />
               <span>Add Task</span>
             </button>
@@ -414,12 +464,12 @@ export const ProjectDashboardPage: React.FC = () => {
                 </select>
 
                 <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                  ({tasks.length} {tasks.length === 1 ? 'task' : 'tasks'})
+                  ({visibleTasks.length} {visibleTasks.length === 1 ? 'task' : 'tasks'})
                 </span>
               </div>
             </div>
 
-            {tasks.length === 0 ? (
+            {visibleTasks.length === 0 ? (
               <div className="card" style={{ textAlign: 'center', padding: '2.5rem' }}>
                 <CheckCircle2 size={36} style={{ margin: '0 auto 0.75rem auto', color: 'var(--text-muted)' }} />
                 <h3>No tasks match the selected criteria</h3>
@@ -442,7 +492,7 @@ export const ProjectDashboardPage: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {tasks.map((task) => (
+                    {visibleTasks.map((task) => (
                       <tr key={task.id}>
                         <td>
                           <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{task.title}</div>
@@ -469,6 +519,18 @@ export const ProjectDashboardPage: React.FC = () => {
                             <Edit2 size={12} />
                             <span>Edit</span>
                           </button>
+                          {isAdmin && (
+                            <button
+                              type="button"
+                              onClick={() => openDeleteTask(task)}
+                              className="btn btn-outline"
+                              style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem', gap: '0.3rem', marginLeft: '0.4rem', color: '#f87171' }}
+                              aria-label={`Delete task ${task.title}`}
+                            >
+                              <Trash2 size={12} />
+                              <span>Delete</span>
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -485,6 +547,7 @@ export const ProjectDashboardPage: React.FC = () => {
         <div className="auth-wrapper" style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 100 }}>
           <div className="auth-card" style={{ maxWidth: 480 }}>
             <h2 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '1rem' }}>Create Deliverable Task</h2>
+            <DialogError message={dialogError} />
             <form onSubmit={handleCreateTask}>
               <div className="form-group">
                 <label className="form-label">Task Title</label>
@@ -557,7 +620,7 @@ export const ProjectDashboardPage: React.FC = () => {
               <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.25rem' }}>
                 <button
                   type="button"
-                  onClick={() => setShowAddTask(false)}
+                  onClick={closeAddTask}
                   className="btn btn-outline"
                   style={{ flex: 1 }}
                 >
@@ -577,6 +640,7 @@ export const ProjectDashboardPage: React.FC = () => {
         <div className="auth-wrapper" style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 100 }}>
           <div className="auth-card" style={{ maxWidth: 480 }}>
             <h2 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '1rem' }}>Edit Task Deliverable</h2>
+            <DialogError message={dialogError} />
             <form onSubmit={handleUpdateTask}>
               <div className="form-group">
                 <label className="form-label">Task Title</label>
@@ -646,7 +710,7 @@ export const ProjectDashboardPage: React.FC = () => {
               <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.25rem' }}>
                 <button
                   type="button"
-                  onClick={() => setEditingTask(null)}
+                  onClick={closeEditTask}
                   className="btn btn-outline"
                   style={{ flex: 1 }}
                 >
@@ -659,6 +723,25 @@ export const ProjectDashboardPage: React.FC = () => {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Modal: Delete Task (confirmation) */}
+      {deletingTask && (
+        <ConfirmDialog
+          title="Delete Task"
+          message={
+            <>
+              Delete <strong>{deletingTask.title}</strong>? Its cost will be removed from the project's budget
+              figures. This cannot be undone.
+            </>
+          }
+          confirmLabel="Delete Task"
+          busyLabel="Deleting..."
+          isBusy={isSubmitting}
+          error={dialogError}
+          onConfirm={() => void handleDeleteTask()}
+          onCancel={closeDeleteTask}
+        />
       )}
     </div>
   );

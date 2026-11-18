@@ -1,19 +1,23 @@
 import {
   IsEnum,
+  IsNotEmpty,
   IsOptional,
   IsString,
   Matches,
   MaxLength,
 } from 'class-validator';
-import { Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { TaskStatus } from '../../../common/enums/task-status.enum';
 import { TaskPriority } from '../../../common/enums/task-priority.enum';
+import { Trim } from '../../../common/validation/trim';
+import { MoneyInput, MONEY_PATTERN, moneyMessage } from '../../../common/validation/money';
 
 export class UpdateTaskDto {
   @ApiPropertyOptional({ example: 'Updated task title', description: 'Updated title' })
   @IsOptional()
+  @Trim()
   @IsString()
+  @IsNotEmpty({ message: 'Task title must not be empty' })
   @MaxLength(250)
   title?: string;
 
@@ -38,10 +42,8 @@ export class UpdateTaskDto {
 
   @ApiPropertyOptional({ example: '52000.00', description: 'Updated estimated cost in ETB' })
   @IsOptional()
-  @Transform(({ value }) => (typeof value === 'number' ? value.toFixed(2) : String(value)))
+  @MoneyInput()
   @IsString()
-  @Matches(/^\d+(\.\d{1,2})?$/, {
-    message: 'Estimated cost must be a non-negative decimal with up to 2 decimal places',
-  })
+  @Matches(MONEY_PATTERN, { message: moneyMessage('Estimated cost') })
   estimatedCost?: string;
 }

@@ -70,11 +70,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       // Select first organization or retain current if still valid
       if (orgs.length > 0) {
-        const stillValid = currentOrg && orgs.some((o) => o.id === currentOrg.id);
-        if (!stillValid) {
-          const defaultOrg = orgs[0];
-          setCurrentOrg(defaultOrg);
-          localStorage.setItem('currentOrg', JSON.stringify(defaultOrg));
+        const fresh = currentOrg ? orgs.find((o) => o.id === currentOrg.id) : undefined;
+        // Keep the current organization, but always take the server's copy so a changed role
+        // (or a tampered localStorage entry) is replaced by the authoritative value.
+        const next = fresh ?? orgs[0];
+        if (!fresh || fresh.role !== currentOrg?.role || fresh.name !== currentOrg?.name) {
+          setCurrentOrg(next);
+          localStorage.setItem('currentOrg', JSON.stringify(next));
         }
       } else {
         setCurrentOrg(null);

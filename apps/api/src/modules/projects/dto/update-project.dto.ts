@@ -1,16 +1,20 @@
 import {
+  IsNotEmpty,
   IsOptional,
   IsString,
   Matches,
   MaxLength,
 } from 'class-validator';
-import { Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { Trim } from '../../../common/validation/trim';
+import { MoneyInput, MONEY_PATTERN, moneyMessage } from '../../../common/validation/money';
 
 export class UpdateProjectDto {
   @ApiPropertyOptional({ example: 'Mobile Banking Platform v2', description: 'Updated project name' })
   @IsOptional()
+  @Trim()
   @IsString()
+  @IsNotEmpty({ message: 'Project name must not be empty' })
   @MaxLength(200)
   name?: string;
 
@@ -21,10 +25,8 @@ export class UpdateProjectDto {
 
   @ApiPropertyOptional({ example: '750000.00', description: 'Updated budget in ETB' })
   @IsOptional()
-  @Transform(({ value }) => (typeof value === 'number' ? value.toFixed(2) : String(value)))
+  @MoneyInput()
   @IsString()
-  @Matches(/^\d+(\.\d{1,2})?$/, {
-    message: 'Budget must be a non-negative decimal with up to 2 decimal places',
-  })
+  @Matches(MONEY_PATTERN, { message: moneyMessage('Budget') })
   budget?: string;
 }

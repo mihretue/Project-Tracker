@@ -11,10 +11,12 @@ import {
   Shield,
   Coins,
   ChevronDown,
+  X,
 } from 'lucide-react';
 import { useAuth, Organization } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { api } from '../services/api';
+import { onProjectsChanged } from '../services/projectEvents';
 
 interface ProjectNavItem {
   id: string;
@@ -22,38 +24,63 @@ interface ProjectNavItem {
   budget: string;
 }
 
-export const Sidebar: React.FC = () => {
+interface ProjectNavState {
+  orgId: string | null;
+  status: 'loading' | 'ready' | 'error';
+  items: ProjectNavItem[];
+}
+
+interface SidebarProps {
+  /** Mobile off-canvas state. On desktop the sidebar is always visible and this has no effect. */
+  isOpen?: boolean;
+  onClose?: () => void;
+}
+
+export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => {
   const { user, currentOrg, organizations, switchOrganization, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
 
-  const [projects, setProjects] = useState<ProjectNavItem[]>([]);
   const [isOrgDropdownOpen, setIsOrgDropdownOpen] = useState(false);
 
-  // Fetch projects list for current organization
-  useEffect(() => {
-    let isMounted = true;
-    const fetchOrgProjects = async () => {
-      if (!currentOrg) {
-        setProjects([]);
-        return;
-      }
-      try {
-        const res = await api.get<ProjectNavItem[]>(`/projects?organizationId=${currentOrg.id}`);
-        if (isMounted) {
-          setProjects(res.data);
-        }
-      } catch {
-        if (isMounted) setProjects([]);
-      }
-    };
+  // The project list belongs to ONE organization (orgId). It is only shown while it matches the
+  // current organization, so a previous organization's projects can never appear under a new one.
+  const [nav, setNav] = useState<ProjectNavState>({ orgId: null, status: 'loading', items: [] });
+  // Bumped when a page creates, edits or deletes a project, or when the user presses Retry
+  const [reloadKey, setReloadKey] = useState(0);
+  useEffect(() => onProjectsChanged(() => setReloadKey((v) => v + 1)), []);
 
-    void fetchOrgProjects();
+  const currentOrgId = currentOrg?.id ?? null;
+
+  // Fetch the project list for the current organization. Re-runs only when the organization
+  // changes or a project mutation is announced - not on every navigation.
+  useEffect(() => {
+    if (!currentOrgId) {
+      setNav({ orgId: null, status: 'ready', items: [] });
+      return;
+    }
+    let cancelled = false;
+    // Switching organization: drop the old list immediately instead of showing it while loading
+    setNav((prev) => (prev.orgId === currentOrgId ? prev : { orgId: currentOrgId, status: 'loading', items: [] }));
+
+    api
+      .get<ProjectNavItem[]>(`/projects?organizationId=${currentOrgId}`)
+      .then((res) => {
+        if (!cancelled) setNav({ orgId: currentOrgId, status: 'ready', items: res.data });
+      })
+      .catch(() => {
+        if (!cancelled) setNav({ orgId: currentOrgId, status: 'error', items: [] });
+      });
+
     return () => {
-      isMounted = false;
+      cancelled = true;
     };
-  }, [currentOrg?.id, location.pathname]);
+  }, [currentOrgId, reloadKey]);
+
+  const view: ProjectNavState =
+    nav.orgId === currentOrgId ? nav : { orgId: currentOrgId, status: 'loading', items: [] };
+  const projects = view.items;
 
   const handleOrgChange = (org: Organization) => {
     switchOrganization(org.id);
@@ -72,7 +99,7 @@ export const Sidebar: React.FC = () => {
   const activeProjectId = (location.state as { projectId?: string })?.projectId;
 
   return (
-    <aside className="app-sidebar">
+    <aside id="app-sidebar" className={`app-sidebar ${isOpen ? 'open' : ''}`} aria-label="Main navigation">
       {/* 1. Brand Logo */}
       <div className="sidebar-brand">
         <div className="nav-logo-badge">TP</div>
@@ -80,6 +107,9 @@ export const Sidebar: React.FC = () => {
           <span className="brand-title">Project Tracker</span>
           <span className="brand-subtitle">Multi-Tenant Platform</span>
         </div>
+        <button type="button" className="sidebar-close-btn" onClick={onClose} aria-label="Close navigation">
+          <X size={18} />
+        </button>
       </div>
 
       {/* 2. Organization Tenant Switcher Card */}
@@ -158,7 +188,7 @@ export const Sidebar: React.FC = () => {
 
         {/* 4. Projects Sub-List in Current Organization */}
         <div className="nav-section-label projects-header">
-          <span>PROJECTS ({projects.length})</span>
+          <span>PROJECTS ({view.status === 'ready' ? projects.length : '\u2026'})</span>
           {currentOrg?.role === 'ADMIN' && (
             <button
               className="btn-icon-subtle"
@@ -171,7 +201,16 @@ export const Sidebar: React.FC = () => {
         </div>
 
         <div className="sidebar-projects-list">
-          {projects.length === 0 ? (
+          {view.status === 'loading' ? (
+            <div className="sidebar-empty-projects" role="status">Loading projects...</div>
+          ) : view.status === 'error' ? (
+            <div className="sidebar-empty-projects" role="alert">
+              Could not load projects.{' '}
+              <button type="button" className="sidebar-retry" onClick={() => setReloadKey((v) => v + 1)}>
+                Retry
+              </button>
+            </div>
+          ) : projects.length === 0 ? (
             <div className="sidebar-empty-projects">No projects yet</div>
           ) : (
             projects.map((p) => {

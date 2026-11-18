@@ -1,8 +1,10 @@
 import { IsNotEmpty, IsString, Matches, MaxLength } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
+import { Trim } from '../../../common/validation/trim';
 
 export class CreateOrganizationDto {
   @ApiProperty({ example: 'Acme Corporation', description: 'Organization display name' })
+  @Trim()
   @IsString()
   @IsNotEmpty({ message: 'Organization name is required' })
   @MaxLength(150)

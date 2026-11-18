@@ -6,11 +6,13 @@ import {
   Matches,
   MaxLength,
 } from 'class-validator';
-import { Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Trim } from '../../../common/validation/trim';
+import { MoneyInput, MONEY_PATTERN, moneyMessage } from '../../../common/validation/money';
 
 export class CreateProjectDto {
   @ApiProperty({ example: 'Mobile Banking Platform', description: 'Project name' })
+  @Trim()
   @IsString()
   @IsNotEmpty({ message: 'Project name is required' })
   @MaxLength(200)
@@ -28,11 +30,9 @@ export class CreateProjectDto {
     example: '650000.00',
     description: 'Project budget in ETB (non-negative decimal string with up to 2 decimal places)',
   })
-  @Transform(({ value }) => (typeof value === 'number' ? value.toFixed(2) : String(value)))
+  @MoneyInput()
   @IsString()
-  @Matches(/^\d+(\.\d{1,2})?$/, {
-    message: 'Budget must be a non-negative decimal with up to 2 decimal places (e.g. 150000.00)',
-  })
+  @Matches(MONEY_PATTERN, { message: moneyMessage('Budget') })
   budget: string;
 
   @ApiProperty({ example: 'a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d', description: 'Organization UUID' })
