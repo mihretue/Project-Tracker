@@ -1,16 +1,29 @@
-name: CI Pipeline
+name: CI/CD
 
+# CI runs on every push to every branch and on every pull request.
+# The deploy job only runs for pushes to main, and only after the api and web jobs both pass.
 on:
   push:
-    branches: [main]
+    branches: ['**']
   pull_request:
-    branches: [main]
+
+permissions:
+  contents: read
+
+# Superseded runs on feature branches are cancelled; runs on main are never cancelled mid-flight
+# (a deploy must not be interrupted halfway through a migration).
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  verify:
-    name: Build & Test Monorepo
+  api:
+    name: API - typecheck, build, unit and E2E tests
     runs-on: ubuntu-latest
 
+    # Throwaway database that exists only for this job. E2E tests additionally force
+    # POSTGRES_DB=tenant_project_tracker_test in apps/api/test/setup.ts, and no development or
+    # production credentials are available to this job.
     services:
       postgres:
         image: postgres:16-alpine
@@ -26,45 +39,114 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    env:
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: tenant_project_tracker_test
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
+          cache: npm
 
-      - name: Install dependencies
-        run: npm ci
+      - run: npm ci
 
-      - name: Run Strict Typechecks
-        run: npm run typecheck
+      - name: Typecheck API
+        run: npm --workspace=@tenant-tracker/api run typecheck
 
-      - name: Build Backend (apps/api)
+      - name: Build API
         run: npm run build:api
 
-      - name: Build Frontend (apps/web)
-        run: npm run build:web
-
-      - name: Run Backend Unit Tests
+      - name: API unit tests
         run: npm run test:api
 
-      - name: Run Migrations on Test Database
+      - name: Apply migrations to the CI test database
+        run: npm run migration:run
+
+      - name: API E2E tests
+        run: npm run test:e2e
+
+  web:
+    name: Web - typecheck, tests, build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck web
+        run: npm --workspace=@tenant-tracker/web run typecheck
+
+      - name: Web tests
+        run: npm run test:web
+
+      - name: Build web
+        run: npm run build:web
+
+  deploy:
+    name: Deploy to production
+    needs: [api, web]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Require deployment secrets
+        env:
+          LIVE_POSTGRES_HOST: ${{ secrets.LIVE_POSTGRES_HOST }}
+          LIVE_POSTGRES_USER: ${{ secrets.LIVE_POSTGRES_USER }}
+          LIVE_POSTGRES_PASSWORD: ${{ secrets.LIVE_POSTGRES_PASSWORD }}
+          LIVE_POSTGRES_DB: ${{ secrets.LIVE_POSTGRES_DB }}
+          RENDER_API_DEPLOY_HOOK_URL: ${{ secrets.RENDER_API_DEPLOY_HOOK_URL }}
+          RENDER_WEB_DEPLOY_HOOK_URL: ${{ secrets.RENDER_WEB_DEPLOY_HOOK_URL }}
+        run: |
+          missing=0
+          for name in LIVE_POSTGRES_HOST LIVE_POSTGRES_USER LIVE_POSTGRES_PASSWORD LIVE_POSTGRES_DB RENDER_API_DEPLOY_HOOK_URL RENDER_WEB_DEPLOY_HOOK_URL; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing GitHub secret: $name"
+              missing=1
+            fi
+          done
+          exit $missing
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      # Runs only after both test jobs passed. Applies any pending migrations (for example the
+      # task-priority migration) to the live database before the new API code goes live.
+      - name: Run migrations on the live database
         run: npm run migration:run
         env:
-          POSTGRES_HOST: localhost
-          POSTGRES_PORT: 5432
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: tenant_project_tracker_test
+          POSTGRES_HOST: ${{ secrets.LIVE_POSTGRES_HOST }}
+          POSTGRES_PORT: ${{ secrets.LIVE_POSTGRES_PORT || '5432' }}
+          POSTGRES_USER: ${{ secrets.LIVE_POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.LIVE_POSTGRES_PASSWORD }}
+          POSTGRES_DB: ${{ secrets.LIVE_POSTGRES_DB }}
+          POSTGRES_SSL: 'true'
 
-      - name: Run Cross-Tenant Security E2E Tests
-        run: npm run test:e2e
+      - name: Deploy API
+        run: curl --fail --silent --show-error -X POST "$RENDER_API_DEPLOY_HOOK_URL"
         env:
-          POSTGRES_HOST: localhost
-          POSTGRES_PORT: 5432
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: tenant_project_tracker_test
+          RENDER_API_DEPLOY_HOOK_URL: ${{ secrets.RENDER_API_DEPLOY_HOOK_URL }}
+
+      - name: Deploy web
+        run: curl --fail --silent --show-error -X POST "$RENDER_WEB_DEPLOY_HOOK_URL"
+        env:
+          RENDER_WEB_DEPLOY_HOOK_URL: ${{ secrets.RENDER_WEB_DEPLOY_HOOK_URL }}
