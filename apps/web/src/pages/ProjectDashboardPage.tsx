@@ -1,11 +1,7 @@
 import React, { useState, useEffect, FormEvent } from 'react';
 import { useLocation } from 'react-router-dom';
 import {
-  Clock,
   Plus,
-  ArrowUpRight,
-  Calculator,
-  Coins,
   AlertCircle,
   Loader2,
   FolderKanban,
@@ -393,34 +389,26 @@ export const ProjectDashboardPage: React.FC = () => {
       ) : (
         <>
           {/* Financial KPIs */}
-          <div className="grid-cards">
+          <div className="stat-strip">
             <StatCard
               label="Project Budget (ETB)"
               value={formatETB(projectBudgetETB)}
-              icon={<Coins size={22} />}
-              iconBgColor="rgba(16, 185, 129, 0.15)"
-              iconColor="#34d399"
+              caption="Approved for this project"
             />
             <StatCard
               label="Estimated Task Cost (ETB)"
               value={formatETB(totalEstimatedCost)}
-              icon={<Calculator size={22} />}
-              iconBgColor="rgba(59, 130, 246, 0.15)"
-              iconColor="#60a5fa"
+              caption={`Across ${tasks.length} ${tasks.length === 1 ? 'task' : 'tasks'}`}
             />
             <StatCard
               label="Remaining Budget (ETB)"
               value={formatETB(remainingBudget)}
-              icon={<ArrowUpRight size={22} />}
-              iconBgColor={remainingBudget >= 0 ? 'rgba(168, 85, 247, 0.15)' : 'rgba(239, 68, 68, 0.15)'}
-              iconColor={remainingBudget >= 0 ? '#c084fc' : '#ef4444'}
+              caption={remainingBudget >= 0 ? 'Still available' : 'Over budget'}
             />
             <StatCard
               label="Budget Allocated"
               value={`${budgetUtilization}%`}
-              icon={<Clock size={22} />}
-              iconBgColor="rgba(245, 158, 11, 0.15)"
-              iconColor="#fbbf24"
+              caption="Of the project budget"
             />
           </div>
 

@@ -257,7 +257,8 @@ describe('Change member role', () => {
     renderPage();
     click('Change role of Mark Member', await waitForScreen());
     const dialog = card('Change Member Role');
-    expect((within(dialog).getByLabelText('Role') as HTMLSelectElement).value).toBe('MEMBER');
+    // the row action says "Promote to Admin", so the dialog opens preset to ADMIN
+    expect((within(dialog).getByLabelText('Role') as HTMLSelectElement).value).toBe('ADMIN');
     setField('Role', 'ADMIN', within(dialog));
     click('Save Role', within(dialog));
 

@@ -105,7 +105,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => 
         <div className="nav-logo-badge">TP</div>
         <div className="brand-text">
           <span className="brand-title">Project Tracker</span>
-          <span className="brand-subtitle">Multi-Tenant Platform</span>
+          <span className="brand-subtitle">Multi-Tenant Workspace</span>
         </div>
         <button type="button" className="sidebar-close-btn" onClick={onClose} aria-label="Close navigation">
           <X size={18} />
@@ -127,9 +127,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => 
                 {currentOrg.name}
               </span>
               <div className="org-meta">
-                <span className={`badge ${currentOrg.role === 'ADMIN' ? 'badge-admin' : 'badge-member'}`}>
-                  <Shield size={10} style={{ marginRight: '3px' }} />
-                  {currentOrg.role}
+                <span className="org-access">
+                  <Shield size={12} />
+                  {currentOrg.role === 'ADMIN' ? 'Admin access' : 'Member access'}
                 </span>
               </div>
             </div>
@@ -169,7 +169,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => 
 
       {/* 3. Navigation Links */}
       <nav className="sidebar-nav">
-        <div className="nav-section-label">MAIN</div>
+        <div className="nav-section-label">Workspace</div>
         <NavLink
           to="/dashboard"
           className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}
@@ -184,11 +184,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => 
         >
           <FolderKanban size={18} />
           <span>All Projects</span>
+          {view.status === 'ready' && <span className="nav-count">{projects.length}</span>}
         </NavLink>
 
         {/* 4. Projects Sub-List in Current Organization */}
         <div className="nav-section-label projects-header">
-          <span>PROJECTS ({view.status === 'ready' ? projects.length : '\u2026'})</span>
+          <span>Projects ({view.status === 'ready' ? projects.length : '\u2026'})</span>
           {currentOrg?.role === 'ADMIN' && (
             <button
               className="btn-icon-subtle"

@@ -3,17 +3,18 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Building2,
   FolderKanban,
-  Coins,
   Shield,
+  User as UserIcon,
   Plus,
   ArrowRight,
-  TrendingUp,
+  ChevronRight,
   AlertCircle,
   UserPlus,
   Loader2,
-  Users,
   Edit2,
   Trash2,
+  Copy,
+  Search,
 } from 'lucide-react';
 import { StatCard } from '../components/StatCard';
 import { DialogError } from '../components/DialogError';
@@ -45,11 +46,11 @@ interface ProjectView {
   budget: string;
   currency: string;
   organizationId: string;
-  tasks?: Array<{ id: string }>;
+  tasks?: Array<{ id: string; status?: string; estimatedCost?: string }>;
 }
 
 export const OrganizationDashboardPage: React.FC = () => {
-  const { user, currentOrg, organizations, switchOrganization, addOrganization, refreshOrganizations } = useAuth();
+  const { user, currentOrg, addOrganization, refreshOrganizations } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -82,6 +83,10 @@ export const OrganizationDashboardPage: React.FC = () => {
   const [roleValue, setRoleValue] = useState<'ADMIN' | 'MEMBER'>('MEMBER');
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Member table filters (client-side)
+  const [memberQuery, setMemberQuery] = useState('');
+  const [memberFilter, setMemberFilter] = useState<'ALL' | 'ADMIN' | 'MEMBER'>('ALL');
 
   const openAddMember = (): void => {
     setDialogError(null);
@@ -119,7 +124,8 @@ export const OrganizationDashboardPage: React.FC = () => {
   };
   const openChangeRole = (m: MemberView): void => {
     setDialogError(null);
-    setRoleValue(m.role);
+    // The row action offers the opposite role ("Promote to Admin" / "Demote to Member")
+    setRoleValue(m.role === 'ADMIN' ? 'MEMBER' : 'ADMIN');
     setRoleTarget(m);
   };
   const closeChangeRole = (): void => {
@@ -385,6 +391,22 @@ export const OrganizationDashboardPage: React.FC = () => {
   };
 
   const totalBudgetETB = projects.reduce((acc, p) => acc + parseFloat(p.budget || '0'), 0);
+  const allTasks = projects.flatMap((p) => p.tasks ?? []);
+  const completedTasks = allTasks.filter((t) => t.status === 'COMPLETED').length;
+  const usedBudgetETB = allTasks.reduce((acc, t) => acc + parseFloat(t.estimatedCost || '0'), 0);
+  const utilizationPct = totalBudgetETB > 0 ? Math.round((usedBudgetETB / totalBudgetETB) * 100) : 0;
+  const adminCount = members.filter((m) => m.role === 'ADMIN').length;
+  const memberCount = members.length - adminCount;
+  const initials = (first: string, last: string): string => `${first?.[0] ?? ''}${last?.[0] ?? ''}`.toUpperCase();
+  const visibleMembers = members.filter((m) => {
+    if (memberFilter !== 'ALL' && m.role !== memberFilter) return false;
+    const q = memberQuery.trim().toLowerCase();
+    if (!q) return true;
+    return `${m.user.firstName} ${m.user.lastName} ${m.user.email}`.toLowerCase().includes(q);
+  });
+  const copyTenantId = (): void => {
+    void navigator.clipboard?.writeText(currentOrg?.id ?? '').catch(() => undefined);
+  };
 
   if (!currentOrg) {
     return (
@@ -406,49 +428,49 @@ export const OrganizationDashboardPage: React.FC = () => {
 
   return (
     <div>
-      {/* Header */}
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">{currentOrg.name}</h1>
-          <p className="page-subtitle">
-            Tenant ID: <code style={{ color: '#93c5fd' }}>{currentOrg.id}</code> | Slug:{' '}
-            <code style={{ color: '#93c5fd' }}>{currentOrg.slug}</code>
-          </p>
-        </div>
-
-        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-          {/* Tenant Switcher */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Building2 size={18} style={{ color: 'var(--accent-primary)' }} />
-            <select
-              value={currentOrg.id}
-              onChange={(e) => switchOrganization(e.target.value)}
-              className="form-input"
-              style={{ padding: '0.45rem 0.75rem', fontSize: '0.85rem' }}
-            >
-              {organizations.map((org) => (
-                <option key={org.id} value={org.id}>
-                  {org.name} ({org.role})
-                </option>
-              ))}
-            </select>
-          </div>
-
+      {/* Top bar: breadcrumb + primary actions */}
+      <div className="page-topbar">
+        <nav className="breadcrumb" aria-label="Breadcrumb">
+          <span className="breadcrumb-org">{currentOrg.name}</span>
+          <ChevronRight size={14} />
+          <span aria-current="page">Organization Overview</span>
+        </nav>
+        <div className="page-topbar-actions">
           <button onClick={openCreateOrg} className="btn btn-outline" style={{ fontSize: '0.85rem' }}>
             <Building2 size={15} />
             <span>New Organization</span>
           </button>
 
           {isAdmin && (
-            <button
-              onClick={openAddProject}
-              className="btn btn-primary"
-              style={{ fontSize: '0.85rem' }}
-            >
+            <button onClick={openAddProject} className="btn btn-primary" style={{ fontSize: '0.85rem' }}>
               <Plus size={16} />
               <span>New Project</span>
             </button>
           )}
+        </div>
+      </div>
+
+      {/* Title and tenant identity */}
+      <div className="page-heading">
+        <h1 className="page-title">{currentOrg.name}</h1>
+        <div className="page-meta">
+          <div className="page-meta-left">
+            <span>
+              Slug: <code>{currentOrg.slug}</code>
+            </span>
+            <span className="meta-dot" aria-hidden="true">
+              {'\u00b7'}
+            </span>
+            <span>
+              Tenant ID: <code>{currentOrg.id}</code>
+            </span>
+            <button type="button" className="icon-ghost-btn" onClick={copyTenantId} aria-label="Copy tenant ID" title="Copy tenant ID">
+              <Copy size={13} />
+            </button>
+          </div>
+          <div className="page-meta-right">
+            Created {new Date(currentOrg.createdAt).toLocaleDateString()} {'\u00b7'} Tenant boundary isolated
+          </div>
         </div>
       </div>
 
@@ -472,59 +494,50 @@ export const OrganizationDashboardPage: React.FC = () => {
         </div>
       )}
 
-      {/* KPI Stats */}
-      <div className="grid-cards">
+      {/* KPI strip */}
+      <div className="stat-strip">
         <StatCard
           label="Your Tenant Role"
-          value={currentOrg.role}
-          icon={<Shield size={22} />}
-          iconBgColor={isAdmin ? 'rgba(245, 158, 11, 0.15)' : 'rgba(59, 130, 246, 0.15)'}
-          iconColor={isAdmin ? '#fbbf24' : '#60a5fa'}
+          value={isAdmin ? 'Admin' : 'Member'}
+          icon={<Shield size={18} />}
+          iconColor={isAdmin ? '#2563eb' : '#64748b'}
+          caption={isAdmin ? 'Full project & member governance' : 'View projects, manage tasks'}
         />
         <StatCard
           label="Team Members"
           value={members.length}
-          icon={<Users size={22} />}
-          iconBgColor="rgba(59, 130, 246, 0.15)"
-          iconColor="#60a5fa"
+          caption={`${adminCount} Admin \u00b7 ${memberCount} Member`}
         />
         <StatCard
           label="Total Projects"
           value={projects.length}
-          icon={<FolderKanban size={22} />}
-          iconBgColor="rgba(168, 85, 247, 0.15)"
-          iconColor="#c084fc"
+          caption={`${completedTasks} of ${allTasks.length} tasks completed`}
         />
         <StatCard
           label="Total Budget (ETB)"
           value={formatETB(totalBudgetETB)}
-          icon={<Coins size={22} />}
-          iconBgColor="rgba(16, 185, 129, 0.15)"
-          iconColor="#34d399"
+          caption={`${formatETB(usedBudgetETB)} utilized (${utilizationPct}%)`}
         />
       </div>
 
       {/* Projects Section */}
-      <div style={{ marginTop: '2.5rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+      <div className="section">
+        <div className="section-head">
           <div>
-            <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-              Organization Projects
-            </h2>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-              Isolated and accessible only to members of {currentOrg.name}
-            </p>
+            <h2 className="section-title">Organization Projects</h2>
+            <p className="section-sub">Isolated and accessible strictly to members of {currentOrg.name}</p>
           </div>
-          {isAdmin && (
-            <button
-              onClick={openAddProject}
-              className="btn btn-outline"
-              style={{ fontSize: '0.85rem' }}
-            >
-              <Plus size={14} />
-              <span>Add Project</span>
-            </button>
-          )}
+          <div className="section-actions">
+            <Link to="/projects" className="text-link">
+              View all
+            </Link>
+            {isAdmin && (
+              <button onClick={openAddProject} className="btn btn-outline" style={{ fontSize: '0.85rem' }}>
+                <Plus size={14} />
+                <span>Add Project</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {isLoadingData ? (
@@ -542,92 +555,123 @@ export const OrganizationDashboardPage: React.FC = () => {
           </div>
         ) : (
           <div className="grid-cards">
-            {projects.map((project) => (
-              <div key={project.id} className="card">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.75rem' }}>
-                  <span className="badge badge-etb">{formatETB(project.budget)}</span>
-                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                    {project.tasks?.length || 0} tasks
-                  </span>
-                </div>
-                <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>
-                  {project.name}
-                </h3>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '1.25rem', minHeight: '40px' }}>
-                  {project.description || 'No description provided.'}
-                </p>
-                {isAdmin && (
-                  <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.85rem' }}>
-                    <button
-                      type="button"
-                      onClick={() => openEditProject(project)}
-                      className="btn btn-outline"
-                      style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem', gap: '0.3rem' }}
-                      aria-label={`Edit project ${project.name}`}
-                    >
-                      <Edit2 size={12} />
-                      <span>Edit</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => openDeleteProject(project)}
-                      className="btn btn-outline"
-                      style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem', gap: '0.3rem', color: '#f87171' }}
-                      aria-label={`Delete project ${project.name}`}
-                    >
-                      <Trash2 size={12} />
-                      <span>Delete</span>
-                    </button>
+            {projects.map((project) => {
+              const tasks = project.tasks ?? [];
+              const done = tasks.filter((t) => t.status === 'COMPLETED').length;
+              const used = tasks.reduce((acc, t) => acc + parseFloat(t.estimatedCost || '0'), 0);
+              const budget = parseFloat(project.budget || '0');
+              const pct = budget > 0 ? Math.min(100, Math.round((used / budget) * 100)) : 0;
+              const overBudget = budget > 0 && used > budget;
+              const isDone = tasks.length > 0 && done === tasks.length;
+              return (
+                <div key={project.id} className="card project-card">
+                  <div className="project-card-head">
+                    <h3 className="project-card-title">{project.name}</h3>
+                    <span className={`status-chip ${isDone ? 'is-done' : 'is-active'}`}>{isDone ? 'Completed' : 'Active'}</span>
                   </div>
-                )}
-                <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-                    <TrendingUp size={14} />
+                  <p className="project-card-desc">{project.description || 'No description provided.'}</p>
+
+                  <div className="budget-row">
                     <span>ETB Budget Tracking</span>
+                    <span className="mono">
+                      {formatETB(used)} <span className="budget-total">/ {formatETB(budget)}</span>
+                    </span>
                   </div>
-                  <Link
-                    to="/projects"
-                    state={{ projectId: project.id }}
-                    style={{
-                      color: 'var(--accent-primary)',
-                      fontSize: '0.85rem',
-                      fontWeight: 600,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.25rem',
-                    }}
+                  <div
+                    className="progress"
+                    role="progressbar"
+                    aria-label={`Budget used for ${project.name}`}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={pct}
                   >
-                    <span>Tasks</span>
-                    <ArrowRight size={14} />
-                  </Link>
+                    <div className={`progress-fill ${overBudget ? 'is-over' : ''}`} style={{ width: `${pct}%` }} />
+                  </div>
+
+                  <div className="project-card-foot">
+                    <span className="muted-small">
+                      {done}/{tasks.length} tasks done
+                    </span>
+                    <div className="project-card-actions">
+                      {isAdmin && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => openEditProject(project)}
+                            className="ghost-action"
+                            aria-label={`Edit project ${project.name}`}
+                          >
+                            <Edit2 size={13} />
+                            <span>Edit</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openDeleteProject(project)}
+                            className="ghost-action is-danger"
+                            aria-label={`Delete project ${project.name}`}
+                          >
+                            <Trash2 size={13} />
+                            <span>Delete</span>
+                          </button>
+                        </>
+                      )}
+                      <Link to="/projects" state={{ projectId: project.id }} className="text-link">
+                        <span>Open Tasks</span>
+                        <ArrowRight size={14} />
+                      </Link>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
 
       {/* Organization Members */}
-      <div style={{ marginTop: '2.5rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+      <div className="section">
+        <div className="section-head">
           <div>
-            <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-              Team Members & Roles
-            </h2>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-              Authorized accounts with access to this tenant boundary
-            </p>
+            <h2 className="section-title">Team Members & Roles</h2>
+            <p className="section-sub">Authorized accounts with access to this tenant boundary</p>
           </div>
-          {isAdmin && (
-            <button
-              onClick={openAddMember}
-              className="btn btn-outline"
-              style={{ fontSize: '0.85rem' }}
-            >
-              <UserPlus size={14} />
-              <span>Add Member</span>
-            </button>
-          )}
+          <div className="section-actions">
+            <label className="search-field">
+              <Search size={15} />
+              <input
+                type="search"
+                placeholder="Filter members..."
+                aria-label="Filter members"
+                value={memberQuery}
+                onChange={(e) => setMemberQuery(e.target.value)}
+              />
+            </label>
+            <div className="segmented" role="group" aria-label="Filter by role">
+              {(
+                [
+                  ['ALL', 'All'],
+                  ['ADMIN', 'Admins'],
+                  ['MEMBER', 'Members'],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={memberFilter === value ? 'is-selected' : ''}
+                  aria-pressed={memberFilter === value}
+                  onClick={() => setMemberFilter(value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {isAdmin && (
+              <button onClick={openAddMember} className="btn btn-outline" style={{ fontSize: '0.85rem' }}>
+                <UserPlus size={14} />
+                <span>Add Member</span>
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="table-container">
@@ -638,35 +682,47 @@ export const OrganizationDashboardPage: React.FC = () => {
                 <th>Email</th>
                 <th>Role</th>
                 <th>Joined</th>
-                {isAdmin && <th>Actions</th>}
+                {isAdmin && <th style={{ textAlign: 'right' }}>Manage</th>}
               </tr>
             </thead>
             <tbody>
-              {members.map((m) => (
-                <tr key={m.id}>
-                  <td style={{ fontWeight: 600 }}>
-                    {m.user.firstName} {m.user.lastName}
+              {visibleMembers.length === 0 && (
+                <tr>
+                  <td colSpan={isAdmin ? 5 : 4} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
+                    No members match the current filter.
                   </td>
-                  <td style={{ color: 'var(--text-secondary)' }}>{m.user.email}</td>
+                </tr>
+              )}
+              {visibleMembers.map((m) => (
+                <tr key={m.id}>
                   <td>
-                    <span className={`badge ${m.role === 'ADMIN' ? 'badge-admin' : 'badge-member'}`}>
-                      {m.role}
+                    <div className="member-cell">
+                      <span className="avatar" aria-hidden="true">
+                        {initials(m.user.firstName, m.user.lastName)}
+                      </span>
+                      <span className="member-name">
+                        {m.user.firstName} {m.user.lastName}
+                      </span>
+                      {m.userId === user?.id && <span className="you-tag">(You)</span>}
+                    </div>
+                  </td>
+                  <td className="mono muted-cell">{m.user.email}</td>
+                  <td>
+                    <span className={`role-label ${m.role === 'ADMIN' ? 'is-admin' : ''}`}>
+                      {m.role === 'ADMIN' ? <Shield size={13} /> : <UserIcon size={13} />}
+                      {m.role === 'ADMIN' ? 'Admin' : 'Member'}
                     </span>
                   </td>
-                  <td style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                    {new Date(m.createdAt).toLocaleDateString()}
-                  </td>
+                  <td className="mono muted-cell">{new Date(m.createdAt).toLocaleDateString()}</td>
                   {isAdmin && (
-                    <td>
+                    <td style={{ textAlign: 'right' }}>
                       <button
                         type="button"
                         onClick={() => openChangeRole(m)}
-                        className="btn btn-outline"
-                        style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem', gap: '0.3rem' }}
+                        className="link-action"
                         aria-label={`Change role of ${m.user.firstName} ${m.user.lastName}`}
                       >
-                        <Shield size={12} />
-                        <span>Change role</span>
+                        {m.role === 'ADMIN' ? 'Demote to Member' : 'Promote to Admin'}
                       </button>
                     </td>
                   )}
