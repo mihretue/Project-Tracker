@@ -24,6 +24,20 @@ export interface UserOrganizationView {
   updatedAt: Date;
 }
 
+export interface CreatedOrganizationView {
+  id: string;
+  name: string;
+  slug: string;
+  initialAdmin: {
+    userId: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+  };
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface MemberView {
   id: string;
   userId: string;
@@ -49,14 +63,23 @@ export class OrganizationsService {
     private readonly dataSource: DataSource,
   ) {}
 
-  async create(
-    dto: CreateOrganizationDto,
-    creator: User,
-  ): Promise<UserOrganizationView> {
+  /**
+   * Platform-level operation (the controller restricts it to PLATFORM_ADMIN).
+   * The caller is NOT added to the organization: the only membership created is
+   * the ADMIN membership for the explicitly selected initial administrator.
+   */
+  async create(dto: CreateOrganizationDto): Promise<CreatedOrganizationView> {
     const slug = dto.slug.toLowerCase().trim();
     const existing = await this.orgRepository.findOne({ where: { slug } });
     if (existing) {
       throw new ConflictException(`Organization with slug '${slug}' already exists`);
+    }
+
+    const initialAdmin = await this.userRepository.findOne({
+      where: { id: dto.initialAdminUserId },
+    });
+    if (!initialAdmin || !initialAdmin.isActive) {
+      throw new NotFoundException('Initial administrator must be an existing active user');
     }
 
     // Execute in transaction to ensure atomicity of Organization + Admin Membership
@@ -69,7 +92,7 @@ export class OrganizationsService {
 
       const membership = manager.create(OrganizationMembership, {
         organizationId: savedOrg.id,
-        userId: creator.id,
+        userId: initialAdmin.id,
         role: MembershipRole.ADMIN,
       });
       await manager.save(membership);
@@ -78,7 +101,12 @@ export class OrganizationsService {
         id: savedOrg.id,
         name: savedOrg.name,
         slug: savedOrg.slug,
-        role: MembershipRole.ADMIN,
+        initialAdmin: {
+          userId: initialAdmin.id,
+          email: initialAdmin.email,
+          firstName: initialAdmin.firstName,
+          lastName: initialAdmin.lastName,
+        },
         createdAt: savedOrg.createdAt,
         updatedAt: savedOrg.updatedAt,
       };

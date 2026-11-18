@@ -1,12 +1,13 @@
 import React, { useState, FormEvent } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { LogIn, Lock, Mail, AlertCircle, Loader2 } from 'lucide-react';
+import { LogIn, Eye, EyeOff, Mail, AlertCircle, Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
 
 export const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -55,7 +56,7 @@ export const LoginPage: React.FC = () => {
           >
             <LogIn size={24} />
           </div>
-          <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: '#ffffff' }}>
+          <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)' }}>
             Sign In to Your Account
           </h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginTop: '0.25rem' }}>
@@ -119,24 +120,25 @@ export const LoginPage: React.FC = () => {
             <div style={{ position: 'relative' }}>
               <input
                 id="password"
-                type="password"
+                type={showPassword ? 'text' : 'password'}
                 className="form-input"
                 placeholder="••••••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 disabled={isSubmitting}
+                style={{ paddingRight: '2.5rem' }}
               />
-              <Lock
-                size={16}
-                style={{
-                  position: 'absolute',
-                  right: '0.85rem',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  color: 'var(--text-muted)',
-                }}
-              />
+              <button
+                type="button"
+                className="password-toggle"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                aria-pressed={showPassword}
+                title={showPassword ? 'Hide password' : 'Show password'}
+              >
+                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
             </div>
           </div>
 

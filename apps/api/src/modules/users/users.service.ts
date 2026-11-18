@@ -8,6 +8,7 @@ import { Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import { User } from './entities/user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
+import { PlatformRole } from '../../common/enums/platform-role.enum';
 
 export interface SafeUser {
   id: string;
@@ -15,6 +16,7 @@ export interface SafeUser {
   firstName: string;
   lastName: string;
   isActive: boolean;
+  platformRole: PlatformRole;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -74,6 +76,8 @@ export class UsersService {
       firstName: createUserDto.firstName.trim(),
       lastName: createUserDto.lastName.trim(),
       isActive: true,
+      // Always a normal user; PLATFORM_ADMIN can only be granted by the seed/bootstrap script.
+      platformRole: PlatformRole.USER,
     });
 
     return this.userRepository.save(user);
@@ -86,6 +90,7 @@ export class UsersService {
       firstName: user.firstName,
       lastName: user.lastName,
       isActive: user.isActive,
+      platformRole: user.platformRole,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };

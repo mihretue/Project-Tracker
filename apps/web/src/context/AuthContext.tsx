@@ -6,6 +6,8 @@ export interface User {
   email: string;
   firstName: string;
   lastName: string;
+  /** Platform-level role. UI hint only: the API enforces it on every request. */
+  platformRole?: 'PLATFORM_ADMIN' | 'USER';
 }
 
 export interface Organization {
@@ -22,13 +24,13 @@ interface AuthContextType {
   organizations: Organization[];
   currentOrg: Organization | null;
   isLoading: boolean;
+  isPlatformAdmin: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (
     email: string,
     password: string,
     firstName: string,
     lastName: string,
-    orgName: string,
   ) => Promise<void>;
   logout: () => void;
   switchOrganization: (orgId: string) => void;
@@ -128,7 +130,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     password: string,
     firstName: string,
     lastName: string,
-    orgName: string,
   ): Promise<void> => {
     setIsLoading(true);
     try {
@@ -147,27 +148,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setToken(accessToken);
       setUser(registeredUser);
 
-      // 2. Automatically create initial organization for this user (they become ADMIN)
-      const slug = orgName
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/(^-|-$)/g, '');
-
-      const orgRes = await api.post<Organization>(
-        '/organizations',
-        {
-          name: orgName,
-          slug: slug || `org-${Date.now()}`,
-        },
-        {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        },
-      );
-
-      const initialOrg = orgRes.data;
-      setOrganizations([initialOrg]);
-      setCurrentOrg(initialOrg);
-      localStorage.setItem('currentOrg', JSON.stringify(initialOrg));
+      // 2. New accounts belong to no organization: a platform administrator creates
+      // organizations and assigns their initial administrator.
+      setOrganizations([]);
+      setCurrentOrg(null);
+      localStorage.removeItem('currentOrg');
     } finally {
       setIsLoading(false);
     }
@@ -203,6 +188,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         organizations,
         currentOrg,
         isLoading,
+        isPlatformAdmin: user?.platformRole === 'PLATFORM_ADMIN',
         login,
         register,
         logout,

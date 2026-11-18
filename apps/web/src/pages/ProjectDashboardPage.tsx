@@ -387,7 +387,7 @@ export const ProjectDashboardPage: React.FC = () => {
               }}
             >
               <div>
-                <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#ffffff' }}>
+                <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)' }}>
                   Project Tasks
                 </h2>
                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
@@ -445,7 +445,7 @@ export const ProjectDashboardPage: React.FC = () => {
                     {tasks.map((task) => (
                       <tr key={task.id}>
                         <td>
-                          <div style={{ fontWeight: 600, color: '#ffffff' }}>{task.title}</div>
+                          <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{task.title}</div>
                           {task.description && (
                             <div style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginTop: '0.15rem' }}>
                               {task.description}

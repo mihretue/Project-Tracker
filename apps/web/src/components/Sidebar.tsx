@@ -23,7 +23,7 @@ interface ProjectNavItem {
 }
 
 export const Sidebar: React.FC = () => {
-  const { user, currentOrg, organizations, switchOrganization, logout } = useAuth();
+  const { user, currentOrg, organizations, switchOrganization, logout, isPlatformAdmin } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
@@ -122,16 +122,18 @@ export const Sidebar: React.FC = () => {
                   </span>
                 </div>
               ))}
-              <div
-                className="dropdown-item add-org-item"
-                onClick={() => {
-                  setIsOrgDropdownOpen(false);
-                  navigate('/dashboard');
-                }}
-              >
-                <Plus size={14} />
-                <span>+ Create Organization</span>
-              </div>
+              {isPlatformAdmin && (
+                <div
+                  className="dropdown-item add-org-item"
+                  onClick={() => {
+                    setIsOrgDropdownOpen(false);
+                    navigate('/dashboard', { state: { openCreateOrg: true } });
+                  }}
+                >
+                  <Plus size={14} />
+                  <span>+ Create Organization</span>
+                </div>
+              )}
             </div>
           )}
         </div>

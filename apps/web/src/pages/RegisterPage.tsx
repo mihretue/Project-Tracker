@@ -1,15 +1,15 @@
 import React, { useState, FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { UserPlus, Lock, Mail, User, Building2, AlertCircle, Loader2 } from 'lucide-react';
+import { UserPlus, Eye, EyeOff, Mail, User, AlertCircle, Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
 
 export const RegisterPage: React.FC = () => {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
-  const [organizationName, setOrganizationName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -22,7 +22,7 @@ export const RegisterPage: React.FC = () => {
     setIsSubmitting(true);
 
     try {
-      await register(email, password, firstName, lastName, organizationName);
+      await register(email, password, firstName, lastName);
       navigate('/dashboard');
     } catch (err: unknown) {
       if (axios.isAxiosError(err) && err.response?.data?.message) {
@@ -55,11 +55,11 @@ export const RegisterPage: React.FC = () => {
           >
             <UserPlus size={24} />
           </div>
-          <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: '#ffffff' }}>
+          <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)' }}>
             Create an Account
           </h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginTop: '0.25rem' }}>
-            Set up your profile and primary organization
+            Set up your profile. A platform administrator will add you to an organization.
           </p>
         </div>
 
@@ -131,34 +131,6 @@ export const RegisterPage: React.FC = () => {
           </div>
 
           <div className="form-group">
-            <label className="form-label" htmlFor="orgName">
-              Organization Name
-            </label>
-            <div style={{ position: 'relative' }}>
-              <input
-                id="orgName"
-                type="text"
-                className="form-input"
-                placeholder="Addis Tech Solutions PLC"
-                value={organizationName}
-                onChange={(e) => setOrganizationName(e.target.value)}
-                required
-                disabled={isSubmitting}
-              />
-              <Building2
-                size={16}
-                style={{
-                  position: 'absolute',
-                  right: '0.85rem',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  color: 'var(--text-muted)',
-                }}
-              />
-            </div>
-          </div>
-
-          <div className="form-group">
             <label className="form-label" htmlFor="register-email">
               Email Address
             </label>
@@ -193,7 +165,7 @@ export const RegisterPage: React.FC = () => {
             <div style={{ position: 'relative' }}>
               <input
                 id="register-password"
-                type="password"
+                type={showPassword ? 'text' : 'password'}
                 className="form-input"
                 placeholder="Minimum 8 characters"
                 value={password}
@@ -201,17 +173,18 @@ export const RegisterPage: React.FC = () => {
                 minLength={8}
                 required
                 disabled={isSubmitting}
+                style={{ paddingRight: '2.5rem' }}
               />
-              <Lock
-                size={16}
-                style={{
-                  position: 'absolute',
-                  right: '0.85rem',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  color: 'var(--text-muted)',
-                }}
-              />
+              <button
+                type="button"
+                className="password-toggle"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                aria-pressed={showPassword}
+                title={showPassword ? 'Hide password' : 'Show password'}
+              >
+                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
             </div>
           </div>
 
@@ -224,12 +197,12 @@ export const RegisterPage: React.FC = () => {
             {isSubmitting ? (
               <>
                 <Loader2 size={16} className="animate-spin" />
-                <span>Creating Organization & Account...</span>
+                <span>Creating Account...</span>
               </>
             ) : (
               <>
                 <UserPlus size={16} />
-                <span>Create Organization & Account</span>
+                <span>Create Account</span>
               </>
             )}
           </button>

@@ -12,6 +12,9 @@ import { UsersService, SafeUser } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { PlatformRoles } from '../auth/decorators/platform-roles.decorator';
+import { PlatformRolesGuard } from '../auth/guards/platform-roles.guard';
+import { PlatformRole } from '../../common/enums/platform-role.enum';
 import { User } from './entities/user.entity';
 
 @ApiTags('Users')
@@ -27,9 +30,10 @@ export class UsersController {
     return this.usersService.toSafeUser(user);
   }
 
-  @ApiOperation({ summary: 'List all users (authenticated)' })
+  @ApiOperation({ summary: 'List all users (PLATFORM_ADMIN only)' })
   @Get()
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, PlatformRolesGuard)
+  @PlatformRoles(PlatformRole.PLATFORM_ADMIN)
   async findAll(): Promise<SafeUser[]> {
     return this.usersService.findAll();
   }

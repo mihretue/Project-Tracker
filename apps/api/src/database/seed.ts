@@ -6,6 +6,7 @@ import { OrganizationMembership } from '../modules/organizations/entities/organi
 import { Project } from '../modules/projects/entities/project.entity';
 import { Task } from '../modules/tasks/entities/task.entity';
 import { MembershipRole } from '../common/enums/role.enum';
+import { PlatformRole } from '../common/enums/platform-role.enum';
 import { TaskStatus } from '../common/enums/task-status.enum';
 import { TaskPriority } from '../common/enums/task-priority.enum';
 
@@ -22,6 +23,41 @@ async function seed(): Promise<void> {
   const taskRepo = dataSource.getRepository(Task);
 
   const passwordHash = await bcrypt.hash('Password123!', 10);
+
+  // 0. Bootstrap the first PLATFORM_ADMIN from environment variables (never from source code).
+  // Set PLATFORM_ADMIN_EMAIL and PLATFORM_ADMIN_PASSWORD in the environment when running the seed.
+  const platformAdminEmail = process.env.PLATFORM_ADMIN_EMAIL?.toLowerCase().trim();
+  const platformAdminPassword = process.env.PLATFORM_ADMIN_PASSWORD;
+
+  if (platformAdminEmail && platformAdminPassword) {
+    if (platformAdminPassword.length < 12) {
+      throw new Error('PLATFORM_ADMIN_PASSWORD must be at least 12 characters long.');
+    }
+
+    const existingPlatformAdmin = await userRepo.findOne({ where: { email: platformAdminEmail } });
+    if (!existingPlatformAdmin) {
+      await userRepo.save(
+        userRepo.create({
+          email: platformAdminEmail,
+          passwordHash: await bcrypt.hash(platformAdminPassword, 10),
+          firstName: 'Platform',
+          lastName: 'Administrator',
+          isActive: true,
+          platformRole: PlatformRole.PLATFORM_ADMIN,
+        }),
+      );
+      console.log(`🛡️ Created PLATFORM_ADMIN: ${platformAdminEmail}`);
+    } else if (existingPlatformAdmin.platformRole !== PlatformRole.PLATFORM_ADMIN) {
+      // Promotion only changes the role; the existing password is left untouched.
+      existingPlatformAdmin.platformRole = PlatformRole.PLATFORM_ADMIN;
+      await userRepo.save(existingPlatformAdmin);
+      console.log(`🛡️ Promoted existing user to PLATFORM_ADMIN: ${platformAdminEmail}`);
+    } else {
+      console.log(`ℹ️ PLATFORM_ADMIN already exists: ${platformAdminEmail}`);
+    }
+  } else {
+    console.log('ℹ️ PLATFORM_ADMIN_EMAIL / PLATFORM_ADMIN_PASSWORD not set — skipping platform admin bootstrap.');
+  }
 
   // 1. Seed Users (1 Admin, 1 Member)
   let adminUser = await userRepo.findOne({ where: { email: 'admin@abyssinia.test' } });

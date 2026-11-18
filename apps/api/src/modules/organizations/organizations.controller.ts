@@ -13,6 +13,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import {
   OrganizationsService,
   UserOrganizationView,
+  CreatedOrganizationView,
   MemberView,
 } from './organizations.service';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
@@ -23,6 +24,9 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { TenantGuard } from './guards/tenant.guard';
 import { TenantRoles } from './decorators/tenant-roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { PlatformRoles } from '../auth/decorators/platform-roles.decorator';
+import { PlatformRolesGuard } from '../auth/guards/platform-roles.guard';
+import { PlatformRole } from '../../common/enums/platform-role.enum';
 import { User } from '../users/entities/user.entity';
 import { MembershipRole } from '../../common/enums/role.enum';
 
@@ -33,13 +37,14 @@ import { MembershipRole } from '../../common/enums/role.enum';
 export class OrganizationsController {
   constructor(private readonly orgsService: OrganizationsService) {}
 
-  @ApiOperation({ summary: 'Create new organization (caller becomes ADMIN)' })
+  @ApiOperation({
+    summary: 'Create organization and assign its initial ADMIN (PLATFORM_ADMIN only)',
+  })
   @Post()
-  async create(
-    @Body() dto: CreateOrganizationDto,
-    @CurrentUser() user: User,
-  ): Promise<UserOrganizationView> {
-    return this.orgsService.create(dto, user);
+  @UseGuards(PlatformRolesGuard)
+  @PlatformRoles(PlatformRole.PLATFORM_ADMIN)
+  async create(@Body() dto: CreateOrganizationDto): Promise<CreatedOrganizationView> {
+    return this.orgsService.create(dto);
   }
 
   @ApiOperation({ summary: 'List organizations caller belongs to with pagination (take, skip)' })

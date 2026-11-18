@@ -5,6 +5,7 @@ import { AppModule } from '../src/app.module';
 import { DataSource } from 'typeorm';
 import { AllExceptionsFilter } from '../src/common/filters/http-exception.filter';
 import { TaskPriority } from '../src/common/enums/task-priority.enum';
+import { createPlatformAdmin } from './helpers/platform-admin';
 
 describe('Task Priority & Filtering (e2e)', () => {
   jest.setTimeout(30000);
@@ -12,8 +13,11 @@ describe('Task Priority & Filtering (e2e)', () => {
   let app: INestApplication;
   let dataSource: DataSource;
 
+  let tokenPlatformAdmin: string;
   let tokenUserA: string;
   let tokenUserB: string;
+  let userAId: string;
+  let userBId: string;
 
   let orgAId: string;
   let orgBId: string;
@@ -61,6 +65,7 @@ describe('Task Priority & Filtering (e2e)', () => {
       })
       .expect(201);
     tokenUserA = regResA.body.accessToken;
+    userAId = regResA.body.user.id;
 
     // 2. Register User B (Foreign tenant)
     const regResB = await request(app.getHttpServer())
@@ -73,25 +78,32 @@ describe('Task Priority & Filtering (e2e)', () => {
       })
       .expect(201);
     tokenUserB = regResB.body.accessToken;
+    userBId = regResB.body.user.id;
 
-    // 3. User A creates Organization A
+    tokenPlatformAdmin = (
+      await createPlatformAdmin(app, dataSource, 'priority.platform@test.com')
+    ).token;
+
+    // 3. Platform admin creates Organization A with User A as initial ADMIN
     const orgResA = await request(app.getHttpServer())
       .post('/api/organizations')
-      .set('Authorization', `Bearer ${tokenUserA}`)
+      .set('Authorization', `Bearer ${tokenPlatformAdmin}`)
       .send({
         name: 'Priority Test Corp',
         slug: 'priority-corp',
+        initialAdminUserId: userAId,
       })
       .expect(201);
     orgAId = orgResA.body.id;
 
-    // 4. User B creates Organization B
+    // 4. Platform admin creates Organization B with User B as initial ADMIN
     const orgResB = await request(app.getHttpServer())
       .post('/api/organizations')
-      .set('Authorization', `Bearer ${tokenUserB}`)
+      .set('Authorization', `Bearer ${tokenPlatformAdmin}`)
       .send({
         name: 'Foreign Priority Ltd',
         slug: 'foreign-priority',
+        initialAdminUserId: userBId,
       })
       .expect(201);
     orgBId = orgResB.body.id;

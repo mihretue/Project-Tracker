@@ -4,6 +4,7 @@ import * as request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { DataSource } from 'typeorm';
 import { AllExceptionsFilter } from '../src/common/filters/http-exception.filter';
+import { createPlatformAdmin } from './helpers/platform-admin';
 
 describe('Tenant Isolation & Cross-Tenant Security (e2e)', () => {
   jest.setTimeout(30000);
@@ -12,6 +13,8 @@ describe('Tenant Isolation & Cross-Tenant Security (e2e)', () => {
   let dataSource: DataSource;
 
   // Tokens & IDs
+  let tokenPlatformAdmin: string;
+
   let tokenUserA: string;
   let userAId: string;
 
@@ -99,24 +102,31 @@ describe('Tenant Isolation & Cross-Tenant Security (e2e)', () => {
     tokenUserC = regResC.body.accessToken;
     userCId = regResC.body.user.id;
 
-    // 4. User A creates Organization A
+    // 3b. Platform administrator (provisioned server-side) creates the organizations
+    tokenPlatformAdmin = (
+      await createPlatformAdmin(app, dataSource, 'platform.admin@security-test.com')
+    ).token;
+
+    // 4. Platform admin creates Organization A with User A as initial ADMIN
     const orgResA = await request(app.getHttpServer())
       .post('/api/organizations')
-      .set('Authorization', `Bearer ${tokenUserA}`)
+      .set('Authorization', `Bearer ${tokenPlatformAdmin}`)
       .send({
         name: 'Organization A Corp',
         slug: 'org-a',
+        initialAdminUserId: userAId,
       })
       .expect(201);
     orgAId = orgResA.body.id;
 
-    // 5. User B creates Organization B
+    // 5. Platform admin creates Organization B with User B as initial ADMIN
     const orgResB = await request(app.getHttpServer())
       .post('/api/organizations')
-      .set('Authorization', `Bearer ${tokenUserB}`)
+      .set('Authorization', `Bearer ${tokenPlatformAdmin}`)
       .send({
         name: 'Organization B Ltd',
         slug: 'org-b',
+        initialAdminUserId: userBId,
       })
       .expect(201);
     orgBId = orgResB.body.id;
@@ -356,20 +366,21 @@ describe('Tenant Isolation & Cross-Tenant Security (e2e)', () => {
       .expect(403);
   });
 
-  // Test 10: Organization creation automatically sets creator as ADMIN
-  it('10. Organization creation automatically assigns ADMIN role to creator', async () => {
+  // Test 10: Organization creation is platform-level; the creator is not auto-assigned as ADMIN
+  it('10. Platform admin creates an org for a chosen ADMIN and gains no membership in it', async () => {
     const freshOrg = await request(app.getHttpServer())
       .post('/api/organizations')
-      .set('Authorization', `Bearer ${tokenUserC}`)
+      .set('Authorization', `Bearer ${tokenPlatformAdmin}`)
       .send({
         name: 'Charlies Autonomous Org',
         slug: 'charlie-org',
+        initialAdminUserId: userCId,
       })
       .expect(201);
 
-    expect(freshOrg.body.role).toBe('ADMIN');
+    expect(freshOrg.body.initialAdmin.userId).toBe(userCId);
 
-    // Charlie can now perform ADMIN operations in his own organization
+    // Charlie is the ADMIN of the new organization
     const memberList = await request(app.getHttpServer())
       .get(`/api/organizations/${freshOrg.body.id}/members`)
       .set('Authorization', `Bearer ${tokenUserC}`)
@@ -378,5 +389,11 @@ describe('Tenant Isolation & Cross-Tenant Security (e2e)', () => {
     expect(memberList.body.length).toBe(1);
     expect(memberList.body[0].userId).toBe(userCId);
     expect(memberList.body[0].role).toBe('ADMIN');
+
+    // The platform admin created it but is not a member: tenant isolation still applies to them
+    await request(app.getHttpServer())
+      .get(`/api/organizations/${freshOrg.body.id}/members`)
+      .set('Authorization', `Bearer ${tokenPlatformAdmin}`)
+      .expect(403);
   });
 });

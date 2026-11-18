@@ -7,6 +7,7 @@ import {
   OneToMany,
   Index,
 } from 'typeorm';
+import { PlatformRole } from '../../../common/enums/platform-role.enum';
 import { OrganizationMembership } from '../../organizations/entities/organization-membership.entity';
 
 @Entity('users')
@@ -29,6 +30,15 @@ export class User {
 
   @Column({ type: 'boolean', default: true })
   isActive: boolean;
+
+  /** Application-wide role. Never assignable through public registration. */
+  @Column({
+    type: 'enum',
+    enum: PlatformRole,
+    enumName: 'user_platform_role_enum',
+    default: PlatformRole.USER,
+  })
+  platformRole: PlatformRole;
 
   @OneToMany(
     () => OrganizationMembership,
