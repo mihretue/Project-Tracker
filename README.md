@@ -39,6 +39,25 @@ other users to it by email.
   project's tasks, whatever the filter shows.
 - **Responsive UI** with light and dark themes and a mobile navigation drawer.
 
+## Organization creation and authorization
+
+The application uses organization-scoped role-based access control rather than a platform-level
+administrator role.
+
+Any authenticated user can create an organization. The creator is automatically assigned the
+`ADMIN` role as the organization's first member. Organization creation and the initial ADMIN
+membership are performed within a single database transaction to prevent organizations from being
+created without an administrator.
+
+Each user's role is stored in the organization membership record, not globally on the user account.
+A user can therefore be an `ADMIN` in one organization and a `MEMBER` in another.
+
+Organization administrators can add members and assign either `ADMIN` or `MEMBER` roles. All
+organization-scoped operations enforce membership and authorization on the server.
+
+This design supports self-service organization creation while maintaining tenant isolation and
+independent permissions across organizations.
+
 ## Design decisions
 
 - **Tenant isolation is enforced on the server, from the database.** Every organization route goes
