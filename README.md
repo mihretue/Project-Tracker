@@ -142,7 +142,8 @@ it). Generate one with:
 node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 ```
 
-Keep the `POSTGRES_*` values identical in both `.env` files, then:
+Keep the `POSTGRES_*` values identical in the root `.env` (read by Docker Compose, which creates the
+database) and `apps/api/.env` (read by the API), then:
 
 ```bash
 npm run docker:db:up     # PostgreSQL
@@ -166,8 +167,17 @@ The E2E tests need their own database, `tenant_project_tracker_test`, with migra
 (CI does this automatically). They always use that database, never the development one:
 
 ```bash
+# macOS / Linux / Git Bash
 POSTGRES_DB=tenant_project_tracker_test npm run migration:run
 POSTGRES_DB=tenant_project_tracker_test npm run test:e2e
+```
+
+```powershell
+# Windows PowerShell
+$env:POSTGRES_DB = "tenant_project_tracker_test"
+npm run migration:run
+npm run test:e2e
+Remove-Item Env:POSTGRES_DB    # so later commands use your normal database again
 ```
 
 ## CI/CD
