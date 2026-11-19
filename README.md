@@ -6,6 +6,14 @@ estimated cost, and budget totals are calculated per project.
 
 **NestJS · React + Vite · PostgreSQL · TypeScript**
 
+## Architecture
+
+A modular monolith: a NestJS REST API (controllers, services, entities, guards, DTOs) and a React +
+Vite single-page app, in one npm-workspaces monorepo. PostgreSQL (via TypeORM) stores users,
+organizations, memberships, projects and tasks; migrations define the schema. Authentication is a
+JWT; every authorization decision (membership, role) is made on the server, never by the frontend.
+The API and the web app deploy independently on Render, sharing one Neon PostgreSQL database.
+
 ## Live demo
 
 | | |
@@ -35,7 +43,9 @@ other users to it by email.
 - **ADMIN**: create, edit and delete projects; delete tasks; add members; change member roles.
 - **MEMBER**: view projects and tasks; create and edit tasks.
 - **Projects and tasks**: ETB budgets, task priority (LOW / MEDIUM / HIGH) with a priority filter,
-  status, estimated cost. Remaining budget and utilization are always computed from *all* of a
+  status, estimated cost. Budget figures are planning numbers, not recorded spending (there is no
+  actual-expenditure data): **allocated** = sum of task estimated costs, **remaining** = budget −
+  allocated, **utilization** = allocated ÷ budget. They are always computed from *all* of a
   project's tasks, whatever the filter shows.
 - **Responsive UI** with light and dark themes and a mobile navigation drawer.
 
@@ -74,7 +84,45 @@ independent permissions across organizations.
   fields are rejected, and unexpected errors return a generic message (no stack traces).
 - **Security configuration**: the API refuses to start without a strong `JWT_SECRET`, CORS allows
   only listed origins, and login/registration are rate limited.
-- **Migrations**, not auto-sync, define the schema (including the task priority migration).
+- **Migrations**, not auto-sync, define the schema (see below).
+
+## Migrations and rollback
+
+**Task priority migration** (`1700000001000-AddTaskPriority`) adds `LOW / MEDIUM / HIGH` priorities:
+
+1. Creates the `task_priority_enum` type.
+2. Adds `tasks.priority` as `NOT NULL DEFAULT 'MEDIUM'`. In PostgreSQL, adding a column with a
+   default gives every *existing* row that default, so all existing tasks become `MEDIUM` in one
+   statement, with no row loop and no data loss. New tasks also default to `MEDIUM`.
+3. Adds an index on `priority` for the filter.
+
+`down()` reverses it exactly: drops the index, the column, then the type. Tasks and every other
+column are untouched; only the priority values are lost.
+
+- **Apply:** `npm run migration:run` (CI runs it against the live database before deploying).
+- **Roll back:** `npm run migration:revert`. It undoes only the *latest* migration, one per run, so
+  it must be run once per migration that was added after priority.
+- **Compatibility:** the column has a default, so the previous app version keeps working against
+  the new schema. If a deploy fails, roll back the application first and keep the additive column;
+  revert the schema only if it is itself the problem, and take a Neon backup or branch first,
+  because reverting discards the priority values.
+- **Verification:** migrations are applied from scratch to a throwaway database in CI on every push,
+  and the E2E tests run against that schema before anything is deployed.
+
+## Where tenant isolation could leak
+
+Isolation is enforced per route, not by the database, so it fails if:
+
+- a new endpoint is added without the tenant guard (authentication alone is not enough);
+- a nested resource (a project or task) is loaded by ID without checking that it belongs to the
+  organization the caller was authorized for;
+- a query, aggregate, report or bulk operation omits the organization filter;
+- a background job or future code path bypasses the shared guards.
+
+Mitigations in place: membership and role are read from the database on every request, resource
+ownership is derived from the stored row (never from client input), and cross-tenant E2E tests
+check that a user from one organization gets `403` on another organization's organization, member,
+project and task endpoints. Not yet in place: database row-level security as a second layer.
 
 ## Run it locally
 
@@ -135,12 +183,24 @@ Required GitHub secrets: `RENDER_API_DEPLOY_HOOK_URL`, `RENDER_WEB_DEPLOY_HOOK_U
 `LIVE_POSTGRES_HOST`, `LIVE_POSTGRES_USER`, `LIVE_POSTGRES_PASSWORD`, `LIVE_POSTGRES_DB`
 (optionally `LIVE_POSTGRES_PORT`). No credentials are stored in the repository.
 
+## What I would harden before production
+
+- Database row-level security as a second isolation layer; a least-privilege database user for the
+  app (separate from the migration user); verified TLS to the database.
+- Short-lived access tokens with refresh/revocation so logout takes effect immediately.
+- Consistent `403`/`404` responses so resource existence is not disclosed.
+- Managed secret storage and rotation; dependency auditing and automated updates.
+- Pipeline: post-deploy health check and smoke test, automatic rollback, run concurrency control,
+  and a manual approval gate on the `production` environment.
+- Operations: central logging, monitoring and alerts, automated backups with a tested restore.
+
 ## Known limitations
 
 - Logging out only clears the browser session; an issued JWT stays valid until it expires (1 day).
 - A project that does not exist returns `404` while one in another tenant returns `403`, which
   reveals whether an ID exists.
-- Demo passwords are public and Swagger is exposed on the demo deployment.
+- Demo passwords are public and Swagger is exposed on the demo deployment. The accounts hold demo
+  data only; do not enter real information, and they should be disabled after the evaluation.
 - There is no endpoint to remove a member or delete an organization.
 - Free-tier hosting: cold starts after idle time.
 
