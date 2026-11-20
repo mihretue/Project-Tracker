@@ -1,11 +1,23 @@
 name: CI/CD
 
-# CI runs on every push to every branch and on every pull request.
-# The deploy job only runs for pushes to main, and only after the api and web jobs both pass.
+# CI runs on every push to every branch and on every pull request: the API and web test jobs
+# always run (they are the required checks).
+# Deployment only happens for pushes to main (or a manual full deploy), only after BOTH test jobs
+# pass, and only for the side that changed:
+#   apps/api/**                      -> live migrations, then API deploy
+#   apps/web/**                      -> web deploy
+#   root package files / workflows   -> both
+#   docs and everything else         -> nothing is deployed
 on:
   push:
     branches: ['**']
   pull_request:
+  workflow_dispatch:
+    inputs:
+      deploy_all:
+        description: 'Run migrations and deploy BOTH the API and the web app (tests must still pass)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -65,8 +77,15 @@ jobs:
       - name: API unit tests
         run: npm run test:api
 
+      # Test A - fresh database: every migration applies from an empty schema (also what the E2E
+      # suites below run on).
       - name: Apply migrations to the CI test database
         run: npm run migration:run
+
+      # Test B - existing database: builds the pre-priority schema in a scratch database, inserts
+      # legacy tasks, applies only the priority migration, checks the data, then rolls it back.
+      - name: Test migration upgrade with existing data
+        run: npm run test:migration
 
       - name: API E2E tests
         run: npm run test:e2e
@@ -94,10 +113,63 @@ jobs:
       - name: Build web
         run: npm run build:web
 
-  deploy:
-    name: Deploy to production
-    needs: [api, web]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+  # Decides which side to deploy. Runs only when a deploy is possible, so pull requests and
+  # feature branches never wait on it. A skipped deploy job never affects required checks,
+  # because those are the api and web jobs above.
+  changes:
+    name: Detect what changed
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    outputs:
+      deploy_api: ${{ steps.decide.outputs.deploy_api }}
+      deploy_web: ${{ steps.decide.outputs.deploy_web }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # On a push this compares the pushed commits with the previous tip of main.
+      # It does not apply to manual runs, which use the deploy_all input instead.
+      - uses: dorny/paths-filter@v3
+        id: filter
+        if: github.event_name == 'push'
+        with:
+          filters: |
+            api:
+              - 'apps/api/**'
+            web:
+              - 'apps/web/**'
+            shared:
+              - 'package.json'
+              - 'package-lock.json'
+              - '.github/workflows/**'
+
+      - name: Decide what to deploy
+        id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          DEPLOY_ALL: ${{ inputs.deploy_all }}
+          API: ${{ steps.filter.outputs.api }}
+          WEB: ${{ steps.filter.outputs.web }}
+          SHARED: ${{ steps.filter.outputs.shared }}
+        run: |
+          deploy_api=false
+          deploy_web=false
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            # A manual run deploys only when the full-deploy option is explicitly ticked
+            if [ "$DEPLOY_ALL" = "true" ]; then deploy_api=true; deploy_web=true; fi
+          else
+            if [ "$API" = "true" ] || [ "$SHARED" = "true" ]; then deploy_api=true; fi
+            if [ "$WEB" = "true" ] || [ "$SHARED" = "true" ]; then deploy_web=true; fi
+          fi
+          echo "deploy_api=$deploy_api" >> "$GITHUB_OUTPUT"
+          echo "deploy_web=$deploy_web" >> "$GITHUB_OUTPUT"
+          echo "Deploy API: $deploy_api, deploy web: $deploy_web"
+
+  # Migrations and the API deploy are ONE job: steps run in order and stop at the first failure,
+  # so the API is never deployed if the live migration failed.
+  deploy-api:
+    name: Deploy API (migrate, then deploy)
+    needs: [api, web, changes]
+    if: needs.changes.outputs.deploy_api == 'true'
     runs-on: ubuntu-latest
     environment: production
 
@@ -109,10 +181,9 @@ jobs:
           LIVE_POSTGRES_PASSWORD: ${{ secrets.LIVE_POSTGRES_PASSWORD }}
           LIVE_POSTGRES_DB: ${{ secrets.LIVE_POSTGRES_DB }}
           RENDER_API_DEPLOY_HOOK_URL: ${{ secrets.RENDER_API_DEPLOY_HOOK_URL }}
-          RENDER_WEB_DEPLOY_HOOK_URL: ${{ secrets.RENDER_WEB_DEPLOY_HOOK_URL }}
         run: |
           missing=0
-          for name in LIVE_POSTGRES_HOST LIVE_POSTGRES_USER LIVE_POSTGRES_PASSWORD LIVE_POSTGRES_DB RENDER_API_DEPLOY_HOOK_URL RENDER_WEB_DEPLOY_HOOK_URL; do
+          for name in LIVE_POSTGRES_HOST LIVE_POSTGRES_USER LIVE_POSTGRES_PASSWORD LIVE_POSTGRES_DB RENDER_API_DEPLOY_HOOK_URL; do
             if [ -z "${!name}" ]; then
               echo "::error::Missing GitHub secret: $name"
               missing=1
@@ -129,8 +200,7 @@ jobs:
 
       - run: npm ci
 
-      # Runs only after both test jobs passed. Applies any pending migrations (for example the
-      # task-priority migration) to the live database before the new API code goes live.
+      # Applies any pending migrations to the live database before the new API code goes live.
       - name: Run migrations on the live database
         run: npm run migration:run
         env:
@@ -145,6 +215,29 @@ jobs:
         run: curl --fail --silent --show-error -X POST "$RENDER_API_DEPLOY_HOOK_URL"
         env:
           RENDER_API_DEPLOY_HOOK_URL: ${{ secrets.RENDER_API_DEPLOY_HOOK_URL }}
+
+  # When both sides deploy, the web app goes after the API so it never runs against an older API.
+  # A skipped API deploy (web-only change) is fine; a failed one blocks the web deploy.
+  deploy-web:
+    name: Deploy web
+    needs: [api, web, changes, deploy-api]
+    if: >-
+      always() && !cancelled() &&
+      needs.api.result == 'success' && needs.web.result == 'success' &&
+      needs.changes.outputs.deploy_web == 'true' &&
+      (needs.deploy-api.result == 'success' || needs.deploy-api.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Require deployment secret
+        env:
+          RENDER_WEB_DEPLOY_HOOK_URL: ${{ secrets.RENDER_WEB_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$RENDER_WEB_DEPLOY_HOOK_URL" ]; then
+            echo "::error::Missing GitHub secret: RENDER_WEB_DEPLOY_HOOK_URL"
+            exit 1
+          fi
 
       - name: Deploy web
         run: curl --fail --silent --show-error -X POST "$RENDER_WEB_DEPLOY_HOOK_URL"
