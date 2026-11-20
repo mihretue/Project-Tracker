@@ -5,6 +5,7 @@ import { AppModule } from '../src/app.module';
 import { DataSource } from 'typeorm';
 import { AllExceptionsFilter } from '../src/common/filters/http-exception.filter';
 import { TaskPriority } from '../src/common/enums/task-priority.enum';
+import { assertSafeConnection } from './helpers/db-safety';
 
 describe('Task Priority & Filtering (e2e)', () => {
   jest.setTimeout(30000);
@@ -42,6 +43,7 @@ describe('Task Priority & Filtering (e2e)', () => {
 
     await app.init();
     dataSource = moduleFixture.get<DataSource>(DataSource);
+    await assertSafeConnection(dataSource);
 
     // Clean test data
     await dataSource.query('DELETE FROM "tasks"');

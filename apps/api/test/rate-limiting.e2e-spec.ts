@@ -3,6 +3,8 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import * as request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { AllExceptionsFilter } from '../src/common/filters/http-exception.filter';
+import { DataSource } from 'typeorm';
+import { assertSafeConnection } from './helpers/db-safety';
 
 describe('Login and Registration Rate Limiting (e2e)', () => {
   jest.setTimeout(30000);
@@ -42,6 +44,7 @@ describe('Login and Registration Rate Limiting (e2e)', () => {
       new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
     );
     await app.init();
+    await assertSafeConnection(app.get(DataSource));
 
     email = `rate.limit.${Date.now()}@security-test.com`;
   });

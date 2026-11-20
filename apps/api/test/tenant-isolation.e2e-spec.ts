@@ -4,6 +4,7 @@ import * as request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { DataSource } from 'typeorm';
 import { AllExceptionsFilter } from '../src/common/filters/http-exception.filter';
+import { assertSafeConnection } from './helpers/db-safety';
 
 describe('Tenant Isolation & Cross-Tenant Security (e2e)', () => {
   jest.setTimeout(30000);
@@ -52,6 +53,7 @@ describe('Tenant Isolation & Cross-Tenant Security (e2e)', () => {
 
     await app.init();
     dataSource = moduleFixture.get<DataSource>(DataSource);
+    await assertSafeConnection(dataSource);
 
     // Clean test data safely
     await dataSource.query('DELETE FROM "tasks"');

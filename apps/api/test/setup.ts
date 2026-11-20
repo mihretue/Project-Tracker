@@ -1,3 +1,5 @@
+import { assertSafeTestEnvironment, pinLocalTestEnvironment } from './helpers/db-safety';
+
 process.env.NODE_ENV = 'test';
 process.env.POSTGRES_DB = process.env.POSTGRES_TEST_DB || 'tenant_project_tracker_test';
 
@@ -7,3 +9,8 @@ process.env.POSTGRES_DB = process.env.POSTGRES_TEST_DB || 'tenant_project_tracke
 process.env.JWT_SECRET =
   process.env.JWT_SECRET || 'e2e-test-only-jwt-signing-key-0123456789abcdefghijklmnop';
 process.env.AUTH_RATE_LIMIT_MAX = process.env.AUTH_RATE_LIMIT_MAX || '1000';
+
+// Database safety: runs before any spec imports AppModule (ConfigModule reads apps/api/.env at import
+// time, and that file may point at a hosted database). Requires an explicit LOCAL *_test database.
+pinLocalTestEnvironment();
+assertSafeTestEnvironment();

@@ -5,6 +5,7 @@ import { randomUUID } from 'crypto';
 import { AppModule } from '../src/app.module';
 import { DataSource } from 'typeorm';
 import { AllExceptionsFilter } from '../src/common/filters/http-exception.filter';
+import { assertSafeConnection } from './helpers/db-safety';
 
 interface TestUser {
   token: string;
@@ -45,6 +46,7 @@ describe('User Endpoint Access Control (e2e)', () => {
     );
     await app.init();
     dataSource = moduleFixture.get<DataSource>(DataSource);
+    await assertSafeConnection(dataSource);
 
     await dataSource.query('DELETE FROM "tasks"');
     await dataSource.query('DELETE FROM "projects"');

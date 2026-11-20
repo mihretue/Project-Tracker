@@ -5,6 +5,7 @@ import { randomBytes } from 'crypto';
 import { DataSource } from 'typeorm';
 import { AppModule } from '../src/app.module';
 import { AllExceptionsFilter } from '../src/common/filters/http-exception.filter';
+import { assertSafeConnection } from './helpers/db-safety';
 
 /**
  * Server-side proof of the MEMBER permission model, by calling the API directly with MEMBER tokens
@@ -18,32 +19,14 @@ import { AllExceptionsFilter } from '../src/common/filters/http-exception.filter
  * Every rejected call is followed by a database assertion that the rows are byte-for-byte unchanged,
  * so "403" can never hide a write that happened anyway.
  *
- * Safety: this file refuses to run unless the database is explicitly a LOCAL test database. It never
- * deletes rows it did not create (all fixtures use per-run unique emails and slugs).
+ * Safety: setup.ts refuses to start unless the environment names a LOCAL *_test database, and this file
+ * re-checks the live connection (helpers/db-safety.ts). It never deletes rows it did not create
+ * (all fixtures use per-run unique emails and slugs).
  */
 
 const run = randomBytes(4).toString('hex');
 const email = (name: string): string => `memberauth.${name}.${run}@security-test.com`;
 const PASSWORD = 'Password123!';
-
-/** Hard stop before any connection is opened: only an explicitly configured local *_test database is allowed. */
-const assertIsolatedTestDatabase = (): void => {
-  const host = process.env.POSTGRES_HOST;
-  const db = process.env.POSTGRES_DB;
-  const local = ['localhost', '127.0.0.1', '::1'];
-  if (!host || !local.includes(host)) {
-    throw new Error(
-      `Refusing to run: POSTGRES_HOST must be set explicitly to a local host (got "${host ?? 'unset'}"). ` +
-        'Unset means the .env file would be used, which may point at a hosted database.',
-    );
-  }
-  if (process.env.POSTGRES_SSL === 'true') {
-    throw new Error('Refusing to run: POSTGRES_SSL=true indicates a hosted database.');
-  }
-  if (!db || !db.endsWith('_test')) {
-    throw new Error(`Refusing to run: POSTGRES_DB must end with "_test" (got "${db ?? 'unset'}").`);
-  }
-};
 
 describe('MEMBER authorization is enforced by the API, not the UI (e2e)', () => {
   jest.setTimeout(60000);
@@ -98,8 +81,6 @@ describe('MEMBER authorization is enforced by the API, not the UI (e2e)', () => 
   let taskXId: string;
 
   beforeAll(async () => {
-    assertIsolatedTestDatabase();
-
     const moduleFixture: TestingModule = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleFixture.createNestApplication();
     app.setGlobalPrefix('api');
@@ -108,11 +89,7 @@ describe('MEMBER authorization is enforced by the API, not the UI (e2e)', () => 
     await app.init();
     dataSource = moduleFixture.get<DataSource>(DataSource);
 
-    // Second line of defence: the connection that was actually opened
-    const opts = dataSource.options as { host?: string; database?: string };
-    if (!['localhost', '127.0.0.1', '::1'].includes(String(opts.host)) || !String(opts.database).endsWith('_test')) {
-      throw new Error(`Refusing to run against ${opts.host}/${opts.database}`);
-    }
+    await assertSafeConnection(dataSource);
 
     admin = await register('admin');
     member = await register('member');

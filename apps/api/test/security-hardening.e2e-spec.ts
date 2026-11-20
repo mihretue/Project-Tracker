@@ -5,6 +5,8 @@ import * as request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { AllExceptionsFilter } from '../src/common/filters/http-exception.filter';
 import { buildCorsOptions } from '../src/config/cors.config';
+import { DataSource } from 'typeorm';
+import { assertSafeConnection } from './helpers/db-safety';
 
 describe('CORS and JWT hardening (e2e)', () => {
   jest.setTimeout(30000);
@@ -28,6 +30,7 @@ describe('CORS and JWT hardening (e2e)', () => {
     // Same options factory main.ts uses, fed an explicit allow-list
     app.enableCors(buildCorsOptions({ NODE_ENV: 'production', CORS_ALLOWED_ORIGINS: ALLOWED_ORIGIN }));
     await app.init();
+    await assertSafeConnection(app.get(DataSource));
   });
 
   afterAll(async () => {
