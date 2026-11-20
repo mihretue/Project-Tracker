@@ -18,6 +18,7 @@ import {
   Search,
 } from 'lucide-react';
 import { StatCard } from '../components/StatCard';
+import { SidebarToggle } from '../components/SidebarToggle';
 import { DialogError } from '../components/DialogError';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { useAuth, Organization } from '../context/AuthContext';
@@ -435,6 +436,7 @@ export const OrganizationDashboardPage: React.FC = () => {
       {/* Top bar: breadcrumb + primary actions */}
       <div className="page-topbar">
         <nav className="breadcrumb" aria-label="Breadcrumb">
+          <SidebarToggle />
           <span className="breadcrumb-org">{currentOrg.name}</span>
           <ChevronRight size={14} />
           <span aria-current="page">Organization Overview</span>

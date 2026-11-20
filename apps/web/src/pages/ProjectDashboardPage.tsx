@@ -13,6 +13,7 @@ import {
   Eye,
 } from 'lucide-react';
 import { StatCard } from '../components/StatCard';
+import { SidebarToggle } from '../components/SidebarToggle';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import axios from 'axios';
@@ -302,6 +303,7 @@ export const ProjectDashboardPage: React.FC = () => {
       <div className="page-header">
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+            <SidebarToggle />
             <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
               {currentOrg.name} &gt; Project Tracker
             </span>

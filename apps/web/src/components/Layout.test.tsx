@@ -5,6 +5,7 @@ import { MemoryRouter } from '../test-utils';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Layout } from './Layout';
+import { SidebarToggle } from './SidebarToggle';
 
 const mocks = vi.hoisted(() => ({
   auth: {} as Record<string, unknown>,
@@ -30,6 +31,7 @@ const renderAt = (path: string) =>
         <Route element={<Layout />}>
           <Route path="/dashboard" element={<div>Dashboard page</div>} />
           <Route path="/projects" element={<div>Projects page</div>} />
+          <Route path="/toggle" element={<SidebarToggle />} />
         </Route>
         <Route element={<Layout />}>
           <Route path="/login" element={<div>Login page</div>} />
@@ -173,5 +175,32 @@ describe('Stylesheet guard: desktop layout rules are not touched by the mobile r
 
   it('the sidebar breakpoint matches the one the layout listens to', () => {
     expect(readFileSync(resolve(__dirname, './Layout.tsx'), 'utf8')).toContain('(max-width: 900px)');
+  });
+});
+
+describe('Desktop sidebar collapse', () => {
+  beforeEach(() => localStorage.removeItem('sidebarCollapsed'));
+  afterEach(() => localStorage.removeItem('sidebarCollapsed'));
+
+  const shell = (): HTMLElement => sidebar().parentElement as HTMLElement;
+
+  it('collapses and expands from the breadcrumb toggle, and remembers the choice', () => {
+    renderAt('/toggle');
+    expect(shell().classList.contains('sidebar-collapsed')).toBe(false);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }));
+    expect(shell().classList.contains('sidebar-collapsed')).toBe(true);
+    expect(localStorage.getItem('sidebarCollapsed')).toBe('true');
+    expect(screen.getByRole('button', { name: 'Expand sidebar' }).getAttribute('aria-expanded')).toBe('false');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand sidebar' }));
+    expect(shell().classList.contains('sidebar-collapsed')).toBe(false);
+    expect(localStorage.getItem('sidebarCollapsed')).toBe('false');
+  });
+
+  it('starts collapsed when that was the saved choice', () => {
+    localStorage.setItem('sidebarCollapsed', 'true');
+    renderAt('/toggle');
+    expect(shell().classList.contains('sidebar-collapsed')).toBe(true);
   });
 });
