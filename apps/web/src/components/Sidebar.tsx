@@ -167,7 +167,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => 
             <button
               className="btn-icon-subtle"
               title="New Project"
-              onClick={() => navigate('/dashboard')}
+              aria-label="New project"
+              // The create-project form lives on the organization overview, which opens it on arrival
+              onClick={() => navigate('/dashboard', { state: { openAddProject: true } })}
             >
               <Plus size={14} />
             </button>

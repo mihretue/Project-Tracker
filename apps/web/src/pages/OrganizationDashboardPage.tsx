@@ -178,9 +178,13 @@ export const OrganizationDashboardPage: React.FC = () => {
 
   // Sidebar "Create Organization" link navigates here asking for the form to open
   useEffect(() => {
-    const state = location.state as { openCreateOrg?: boolean } | null;
+    const state = location.state as { openCreateOrg?: boolean; openAddProject?: boolean } | null;
     if (state?.openCreateOrg) {
       openCreateOrg();
+      navigate(location.pathname, { replace: true, state: null });
+    } else if (state?.openAddProject) {
+      // Sidebar "+" next to Projects; only admins can create projects
+      if (currentOrg?.role === 'ADMIN') openAddProject();
       navigate(location.pathname, { replace: true, state: null });
     }
   }, [location.state]);

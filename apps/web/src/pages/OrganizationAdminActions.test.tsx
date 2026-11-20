@@ -62,9 +62,9 @@ const apiError = (status: number, message: string | string[]) => ({
   response: { status, data: { message } },
 });
 
-const renderPage = () =>
+const renderPage = (state?: { openAddProject: boolean }) =>
   render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[{ pathname: '/dashboard', state }]}>
       <OrganizationDashboardPage />
     </MemoryRouter>,
   );
@@ -136,6 +136,23 @@ describe('Organization admin actions: visibility by role', () => {
     );
     await waitFor(() => expect(screen.queryByRole('button', { name: /edit project/i })).toBeNull());
     expect(screen.queryByRole('button', { name: /change role/i })).toBeNull();
+  });
+});
+
+describe('Sidebar "+" next to Projects', () => {
+  it('opens the Create New Project form for an ADMIN, once', async () => {
+    renderPage({ openAddProject: true });
+    expect(await screen.findByRole('heading', { name: 'Create New Project' })).not.toBeNull();
+    // The request is consumed, so closing the form does not reopen it
+    fireEvent.click(within(card('Create New Project')).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(dialogOpen('Create New Project')).toBe(false));
+  });
+
+  it('does nothing for a MEMBER, who cannot create projects', async () => {
+    mocks.auth.currentOrg = memberOrg;
+    renderPage({ openAddProject: true });
+    await waitForScreen();
+    expect(dialogOpen('Create New Project')).toBe(false);
   });
 });
 

@@ -80,6 +80,27 @@ const ready = async (): Promise<void> => {
   await screen.findByText('Task h1');
 };
 
+describe('View task details', () => {
+  it('opens a read-only detail dialog for any role, with Close and Edit', async () => {
+    mocks.auth.currentOrg = memberOrg;
+    renderPage();
+    await ready();
+    fireEvent.click(screen.getByRole('button', { name: 'View task Task h1' }));
+    const dialog = screen.getByRole('dialog', { name: 'Task details' });
+    expect(within(dialog).getByText('Task h1')).not.toBeNull();
+    expect(within(dialog).getByText('No description provided.')).not.toBeNull();
+    expect(mocks.api.patch).not.toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog', { name: 'Task details' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'View task Task h1' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Task details' })).getByRole('button', { name: 'Edit' }));
+    expect(screen.queryByRole('dialog', { name: 'Task details' })).toBeNull();
+    expect(dialogOpen('Edit Task Deliverable')).toBe(true);
+  });
+});
+
 describe('Delete task', () => {
   it('is offered to ADMINs only; MEMBERs keep the Edit action', async () => {
     const view = renderPage();

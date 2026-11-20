@@ -10,6 +10,7 @@ import {
   Filter,
   Trash2,
   Edit2,
+  Eye,
 } from 'lucide-react';
 import { StatCard } from '../components/StatCard';
 import { useAuth } from '../context/AuthContext';
@@ -52,6 +53,8 @@ export const ProjectDashboardPage: React.FC = () => {
   // Errors for the dialog that is currently open (add task, edit task, delete task); shown inside it
   const [dialogError, setDialogError] = useState<string | null>(null);
   const [deletingTask, setDeletingTask] = useState<TaskItem | null>(null);
+  // Read-only detail view; kept as an id so it always shows the freshest copy of the task
+  const [viewingTaskId, setViewingTaskId] = useState<string | null>(null);
 
   // New task form state
   const [showAddTask, setShowAddTask] = useState(false);
@@ -228,6 +231,7 @@ export const ProjectDashboardPage: React.FC = () => {
   };
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId);
+  const viewingTask = tasks.find((t) => t.id === viewingTaskId) ?? null;
   const projectBudgetETB = parseFloat(selectedProject?.budget || '0');
   const visibleTasks = priorityFilter === 'ALL' ? tasks : tasks.filter((t) => t.priority === priorityFilter);
   const totalEstimatedCost = tasks.reduce((acc, t) => acc + parseFloat(t.estimatedCost || '0'), 0);
@@ -472,6 +476,17 @@ export const ProjectDashboardPage: React.FC = () => {
                         </td>
                         <td>
                           <button
+                            type="button"
+                            onClick={() => setViewingTaskId(task.id)}
+                            className="btn btn-outline"
+                            style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem', gap: '0.3rem', marginRight: '0.4rem' }}
+                            aria-label={`View task ${task.title}`}
+                            title="View task details"
+                          >
+                            <Eye size={12} />
+                            <span>View</span>
+                          </button>
+                          <button
                             onClick={() => handleOpenEdit(task)}
                             className="btn btn-outline"
                             style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem', gap: '0.3rem' }}
@@ -592,6 +607,56 @@ export const ProjectDashboardPage: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Task details (read-only) */}
+      {viewingTask && (
+        <div className="auth-wrapper" style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 100 }}>
+          <div className="auth-card" style={{ maxWidth: 520 }} role="dialog" aria-label="Task details">
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '0.25rem' }}>{viewingTask.title}</h2>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '1rem' }}>
+              {selectedProject?.name}
+            </p>
+            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+              {getPriorityBadge(viewingTask.priority)}
+              {getStatusBadge(viewingTask.status)}
+            </div>
+            <div style={{ marginBottom: '1rem' }}>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginBottom: '0.25rem' }}>Description</div>
+              <div style={{ whiteSpace: 'pre-wrap' }}>{viewingTask.description || 'No description provided.'}</div>
+            </div>
+            <div style={{ display: 'flex', gap: '2rem', marginBottom: '1.25rem' }}>
+              <div>
+                <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginBottom: '0.25rem' }}>Estimated cost</div>
+                <span className="badge badge-etb">{formatETB(parseFloat(viewingTask.estimatedCost || '0'))}</span>
+              </div>
+              <div>
+                <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginBottom: '0.25rem' }}>Share of project budget</div>
+                <strong>
+                  {projectBudgetETB > 0
+                    ? `${((parseFloat(viewingTask.estimatedCost || '0') / projectBudgetETB) * 100).toFixed(1)}%`
+                    : 'N/A'}
+                </strong>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <button type="button" className="btn btn-outline" style={{ flex: 1 }} onClick={() => setViewingTaskId(null)}>
+                Close
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ flex: 1 }}
+                onClick={() => {
+                  setViewingTaskId(null);
+                  handleOpenEdit(viewingTask);
+                }}
+              >
+                Edit
+              </button>
+            </div>
           </div>
         </div>
       )}
