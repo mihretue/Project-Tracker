@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import {
   Building2,
@@ -15,19 +16,12 @@ import {
 } from 'lucide-react';
 import { useAuth, Organization } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
-import { api } from '../services/api';
-import { onProjectsChanged } from '../services/projectEvents';
+import { useProjects } from '../services/queries';
 
 interface ProjectNavItem {
   id: string;
   name: string;
   budget: string;
-}
-
-interface ProjectNavState {
-  orgId: string | null;
-  status: 'loading' | 'ready' | 'error';
-  items: ProjectNavItem[];
 }
 
 interface SidebarProps {
@@ -41,46 +35,23 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => 
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
+  const queryClient = useQueryClient();
 
   const [isOrgDropdownOpen, setIsOrgDropdownOpen] = useState(false);
 
-  // The project list belongs to ONE organization (orgId). It is only shown while it matches the
-  // current organization, so a previous organization's projects can never appear under a new one.
-  const [nav, setNav] = useState<ProjectNavState>({ orgId: null, status: 'loading', items: [] });
-  // Bumped when a page creates, edits or deletes a project, or when the user presses Retry
-  const [reloadKey, setReloadKey] = useState(0);
-  useEffect(() => onProjectsChanged(() => setReloadKey((v) => v + 1)), []);
-
   const currentOrgId = currentOrg?.id ?? null;
 
-  // Fetch the project list for the current organization. Re-runs only when the organization
-  // changes or a project mutation is announced - not on every navigation.
-  useEffect(() => {
-    if (!currentOrgId) {
-      setNav({ orgId: null, status: 'ready', items: [] });
-      return;
-    }
-    let cancelled = false;
-    // Switching organization: drop the old list immediately instead of showing it while loading
-    setNav((prev) => (prev.orgId === currentOrgId ? prev : { orgId: currentOrgId, status: 'loading', items: [] }));
-
-    api
-      .get<ProjectNavItem[]>(`/projects?organizationId=${currentOrgId}`)
-      .then((res) => {
-        if (!cancelled) setNav({ orgId: currentOrgId, status: 'ready', items: res.data });
-      })
-      .catch(() => {
-        if (!cancelled) setNav({ orgId: currentOrgId, status: 'error', items: [] });
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [currentOrgId, reloadKey]);
-
-  const view: ProjectNavState =
-    nav.orgId === currentOrgId ? nav : { orgId: currentOrgId, status: 'loading', items: [] };
-  const projects = view.items;
+  // Cached per organization, so a previous organization's projects can never appear under a new one.
+  // Page mutations invalidate this entry, so the list refreshes without any event plumbing.
+  const projectsQuery = useProjects<ProjectNavItem>(currentOrgId);
+  const projects = projectsQuery.data ?? [];
+  const status: 'loading' | 'ready' | 'error' = !currentOrgId
+    ? 'ready'
+    : projectsQuery.isError
+      ? 'error'
+      : projectsQuery.isPending
+        ? 'loading'
+        : 'ready';
 
   const handleOrgChange = (org: Organization) => {
     switchOrganization(org.id);
@@ -93,6 +64,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => 
 
   const handleLogout = () => {
     logout();
+    // Drop every cached server response so the next user never sees the previous user's data
+    queryClient.clear();
     navigate('/login');
   };
 
@@ -184,12 +157,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => 
         >
           <FolderKanban size={18} />
           <span>All Projects</span>
-          {view.status === 'ready' && <span className="nav-count">{projects.length}</span>}
+          {status === 'ready' && <span className="nav-count">{projects.length}</span>}
         </NavLink>
 
         {/* 4. Projects Sub-List in Current Organization */}
         <div className="nav-section-label projects-header">
-          <span>Projects ({view.status === 'ready' ? projects.length : '\u2026'})</span>
+          <span>Projects ({status === 'ready' ? projects.length : '\u2026'})</span>
           {currentOrg?.role === 'ADMIN' && (
             <button
               className="btn-icon-subtle"
@@ -202,12 +175,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => 
         </div>
 
         <div className="sidebar-projects-list">
-          {view.status === 'loading' ? (
+          {status === 'loading' ? (
             <div className="sidebar-empty-projects" role="status">Loading projects...</div>
-          ) : view.status === 'error' ? (
+          ) : status === 'error' ? (
             <div className="sidebar-empty-projects" role="alert">
               Could not load projects.{' '}
-              <button type="button" className="sidebar-retry" onClick={() => setReloadKey((v) => v + 1)}>
+              <button type="button" className="sidebar-retry" onClick={() => void projectsQuery.refetch()}>
                 Retry
               </button>
             </div>

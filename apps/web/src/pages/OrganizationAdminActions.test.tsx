@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor, within } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from '../test-utils';
 import type { Organization } from '../context/AuthContext';
 import { OrganizationDashboardPage } from './OrganizationDashboardPage';
 
@@ -140,10 +140,8 @@ describe('Organization admin actions: visibility by role', () => {
 });
 
 describe('Edit project', () => {
-  it('prepopulates name and budget, sends only those fields, closes, and refreshes projects and sidebar', async () => {
+  it('prepopulates name and budget, sends only those fields, closes, and refreshes the shared projects cache (which the sidebar reads)', async () => {
     mocks.api.patch.mockResolvedValue({ data: {} });
-    const changed = vi.fn();
-    window.addEventListener('projects:changed', changed);
     renderPage();
     click('Edit project Mobile Banking Platform', await waitForScreen());
 
@@ -159,8 +157,6 @@ describe('Edit project', () => {
     await waitFor(() => expect(dialogOpen('Edit Project')).toBe(false));
     expect(mocks.api.patch).toHaveBeenCalledWith('/projects/p-1', { name: 'Mobile Banking v2', budget: '800000.50' });
     expect(projectCalls().length).toBeGreaterThan(loadsBefore);
-    expect(changed).toHaveBeenCalledTimes(1);
-    window.removeEventListener('projects:changed', changed);
   });
 
   it('rejects an invalid budget inside the dialog without calling the API', async () => {
@@ -203,7 +199,8 @@ describe('Edit project', () => {
     const busy = within(dialog).getByRole('button', { name: 'Saving...' }) as HTMLButtonElement;
     expect(busy.disabled).toBe(true);
     fireEvent.click(busy);
-    expect(mocks.api.patch).toHaveBeenCalledTimes(1);
+    // The mutation starts the request a tick after the click; a second click must not add another
+    await waitFor(() => expect(mocks.api.patch).toHaveBeenCalledTimes(1));
     resolve({ data: {} });
     await waitFor(() => expect(dialogOpen('Edit Project')).toBe(false));
   });
@@ -222,10 +219,8 @@ describe('Delete project', () => {
     expect(mocks.api.delete).not.toHaveBeenCalled();
   });
 
-  it('deletes the project after confirmation, then reloads the list and notifies the sidebar', async () => {
+  it('deletes the project after confirmation, then reloads the shared projects cache (which the sidebar reads)', async () => {
     mocks.api.delete.mockResolvedValue({ data: { deleted: true } });
-    const changed = vi.fn();
-    window.addEventListener('projects:changed', changed);
     renderPage();
     click('Delete project Mobile Banking Platform', await waitForScreen());
     const loadsBefore = projectCalls().length;
@@ -234,8 +229,6 @@ describe('Delete project', () => {
     await waitFor(() => expect(dialogOpen('Delete Project')).toBe(false));
     expect(mocks.api.delete).toHaveBeenCalledWith('/projects/p-1');
     expect(projectCalls().length).toBeGreaterThan(loadsBefore);
-    expect(changed).toHaveBeenCalledTimes(1);
-    window.removeEventListener('projects:changed', changed);
   });
 
   it('keeps the dialog and the page state when the request fails, and shows the error inside it', async () => {

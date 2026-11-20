@@ -1,5 +1,6 @@
 import React, { useState, useEffect, FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Building2,
   FolderKanban,
@@ -24,7 +25,7 @@ import { api } from '../services/api';
 import axios from 'axios';
 import { describeApiError } from '../services/errors';
 import { validateProjectInput } from '../services/validation';
-import { notifyProjectsChanged } from '../services/projectEvents';
+import { queryKeys, useMembers, useProjects } from '../services/queries';
 
 interface MemberView {
   id: string;
@@ -54,10 +55,38 @@ export const OrganizationDashboardPage: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const [members, setMembers] = useState<MemberView[]>([]);
-  const [projects, setProjects] = useState<ProjectView[]>([]);
-  const [isLoadingData, setIsLoadingData] = useState<boolean>(true);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const membersQuery = useMembers<MemberView>(currentOrg?.id);
+  const projectsQuery = useProjects<ProjectView>(currentOrg?.id);
+  const members = membersQuery.data ?? [];
+  const projects = projectsQuery.data ?? [];
+  const isLoadingData = membersQuery.isLoading || projectsQuery.isLoading;
+  const loadError = membersQuery.error ?? projectsQuery.error;
+  const actionError: string | null = loadError
+    ? axios.isAxiosError(loadError) && loadError.response?.data?.message
+      ? String(loadError.response.data.message)
+      : 'Failed to load organization data.'
+    : null;
+
+  const invalidateMembers = (): Promise<void> =>
+    queryClient.invalidateQueries({ queryKey: queryKeys.members(currentOrg?.id) });
+  // Also refreshes the sidebar's project list: it reads the same cache entry
+  const invalidateProjects = (): Promise<void> =>
+    queryClient.invalidateQueries({ queryKey: queryKeys.projects(currentOrg?.id) });
+
+  const addMember = useMutation({
+    mutationFn: ({ orgId, body }: { orgId: string; body: Record<string, unknown> }) =>
+      api.post(`/organizations/${orgId}/members`, body),
+  });
+  const changeRole = useMutation({
+    mutationFn: ({ orgId, userId, role }: { orgId: string; userId: string; role: string }) =>
+      api.patch(`/organizations/${orgId}/members/${userId}`, { role }),
+  });
+  const createProject = useMutation({ mutationFn: (body: Record<string, unknown>) => api.post('/projects', body) });
+  const updateProject = useMutation({
+    mutationFn: ({ id, body }: { id: string; body: Record<string, unknown> }) => api.patch(`/projects/${id}`, body),
+  });
+  const deleteProject = useMutation({ mutationFn: (id: string) => api.delete(`/projects/${id}`) });
 
   // Modals / Form toggles
   const [showAddMember, setShowAddMember] = useState(false);
@@ -147,32 +176,6 @@ export const OrganizationDashboardPage: React.FC = () => {
     setShowCreateOrg(false);
   };
 
-  const loadData = async (): Promise<void> => {
-    if (!currentOrg) return;
-    setIsLoadingData(true);
-    setActionError(null);
-    try {
-      const [membersRes, projectsRes] = await Promise.all([
-        api.get<MemberView[]>(`/organizations/${currentOrg.id}/members`),
-        api.get<ProjectView[]>(`/projects?organizationId=${currentOrg.id}`),
-      ]);
-      setMembers(membersRes.data);
-      setProjects(projectsRes.data);
-    } catch (err: unknown) {
-      if (axios.isAxiosError(err) && err.response?.data?.message) {
-        setActionError(String(err.response.data.message));
-      } else {
-        setActionError('Failed to load organization data.');
-      }
-    } finally {
-      setIsLoadingData(false);
-    }
-  };
-
-  useEffect(() => {
-    void loadData();
-  }, [currentOrg?.id]);
-
   // Sidebar "Create Organization" link navigates here asking for the form to open
   useEffect(() => {
     const state = location.state as { openCreateOrg?: boolean } | null;
@@ -189,13 +192,13 @@ export const OrganizationDashboardPage: React.FC = () => {
     setDialogError(null);
 
     try {
-      await api.post(`/organizations/${currentOrg.id}/members`, {
-        email: newMemberEmail.trim(),
-        role: newMemberRole,
+      await addMember.mutateAsync({
+        orgId: currentOrg.id,
+        body: { email: newMemberEmail.trim(), role: newMemberRole },
       });
       closeAddMember();
       setNewMemberEmail('');
-      await loadData();
+      await invalidateMembers();
     } catch (err: unknown) {
       setDialogError(describeApiError(err, 'Failed to add member.'));
     } finally {
@@ -215,7 +218,7 @@ export const OrganizationDashboardPage: React.FC = () => {
     setDialogError(null);
 
     try {
-      await api.post('/projects', {
+      await createProject.mutateAsync({
         name: newProjectName.trim(),
         description: newProjectDesc,
         budget: newProjectBudget.trim(),
@@ -225,8 +228,7 @@ export const OrganizationDashboardPage: React.FC = () => {
       setNewProjectName('');
       setNewProjectDesc('');
       setNewProjectBudget('100000.00');
-      notifyProjectsChanged();
-      await loadData();
+      await invalidateProjects();
     } catch (err: unknown) {
       setDialogError(describeApiError(err, 'Failed to create project.'));
     } finally {
@@ -246,13 +248,12 @@ export const OrganizationDashboardPage: React.FC = () => {
     setDialogError(null);
 
     try {
-      await api.patch(`/projects/${editingProject.id}`, {
-        name: editProjectName.trim(),
-        budget: editProjectBudget.trim(),
+      await updateProject.mutateAsync({
+        id: editingProject.id,
+        body: { name: editProjectName.trim(), budget: editProjectBudget.trim() },
       });
       closeEditProject();
-      notifyProjectsChanged();
-      await loadData();
+      await invalidateProjects();
     } catch (err: unknown) {
       setDialogError(describeApiError(err, 'Failed to update project.'));
     } finally {
@@ -266,10 +267,9 @@ export const OrganizationDashboardPage: React.FC = () => {
     setDialogError(null);
 
     try {
-      await api.delete(`/projects/${deletingProject.id}`);
+      await deleteProject.mutateAsync(deletingProject.id);
       closeDeleteProject();
-      notifyProjectsChanged();
-      await loadData();
+      await invalidateProjects();
     } catch (err: unknown) {
       setDialogError(describeApiError(err, 'Failed to delete project.'));
     } finally {
@@ -288,10 +288,10 @@ export const OrganizationDashboardPage: React.FC = () => {
     setDialogError(null);
 
     try {
-      await api.patch(`/organizations/${currentOrg.id}/members/${roleTarget.userId}`, { role: roleValue });
+      await changeRole.mutateAsync({ orgId: currentOrg.id, userId: roleTarget.userId, role: roleValue });
       const changedOwnRole = roleTarget.userId === user?.id;
       closeChangeRole();
-      await loadData();
+      await invalidateMembers();
       // Own role changed: re-read memberships so the page's permissions follow the server
       if (changedOwnRole) {
         await refreshOrganizations();

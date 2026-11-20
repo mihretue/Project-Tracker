@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor, within } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from '../test-utils';
 import type { Organization } from '../context/AuthContext';
 import { ProjectDashboardPage } from './ProjectDashboardPage';
 
@@ -92,8 +92,9 @@ describe('Delete task', () => {
         <ProjectDashboardPage />
       </MemoryRouter>,
     );
-    await waitFor(() => expect(screen.queryByRole('button', { name: /delete task/i })).toBeNull());
-    expect(screen.getAllByRole('button', { name: /edit/i }).length).toBeGreaterThan(0);
+    // Switching organization loads that organization's projects and tasks before rows appear
+    expect((await screen.findAllByRole('button', { name: /edit/i })).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button', { name: /delete task/i })).toBeNull();
   });
 
   it('a MEMBER never sees delete controls', async () => {
@@ -268,7 +269,8 @@ describe('Task dialogs: errors stay inside the dialog', () => {
     const busy = within(dialog).getByRole('button', { name: 'Saving...' }) as HTMLButtonElement;
     expect(busy.disabled).toBe(true);
     fireEvent.click(busy);
-    expect(mocks.api.post).toHaveBeenCalledTimes(1);
+    // The mutation starts the request a tick after the click; a second click must not add another
+    await waitFor(() => expect(mocks.api.post).toHaveBeenCalledTimes(1));
     resolve({ data: {} });
     await waitFor(() => expect(dialogOpen('Create Deliverable Task')).toBe(false));
   });

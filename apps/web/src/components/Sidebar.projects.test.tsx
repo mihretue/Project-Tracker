@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor, within, act } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from '../test-utils';
 import type { Organization } from '../context/AuthContext';
 import { Sidebar } from './Sidebar';
 import { OrganizationDashboardPage } from '../pages/OrganizationDashboardPage';

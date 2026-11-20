@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, within, waitFor } from '@testing-library/react';
-import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { Routes, Route } from 'react-router-dom';
+import { MemoryRouter } from '../test-utils';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Layout } from './Layout';

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, FormEvent } from 'react';
 import { useLocation } from 'react-router-dom';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Plus,
   AlertCircle,
@@ -14,6 +15,7 @@ import { StatCard } from '../components/StatCard';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import axios from 'axios';
+import { queryKeys, useProjects, useTasks } from '../services/queries';
 import { DialogError } from '../components/DialogError';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { describeApiError } from '../services/errors';
@@ -44,12 +46,9 @@ export const ProjectDashboardPage: React.FC = () => {
   const isAdmin = currentOrg?.role === 'ADMIN';
   const location = useLocation();
 
-  const [projects, setProjects] = useState<ProjectItem[]>([]);
+  const queryClient = useQueryClient();
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
-  const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [priorityFilter, setPriorityFilter] = useState<'ALL' | 'LOW' | 'MEDIUM' | 'HIGH'>('ALL');
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   // Errors for the dialog that is currently open (add task, edit task, delete task); shown inside it
   const [dialogError, setDialogError] = useState<string | null>(null);
   const [deletingTask, setDeletingTask] = useState<TaskItem | null>(null);
@@ -72,68 +71,45 @@ export const ProjectDashboardPage: React.FC = () => {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Load projects for current organization
-  useEffect(() => {
-    const loadProjects = async (): Promise<void> => {
-      if (!currentOrg) return;
-      setIsLoading(true);
-      setErrorMsg(null);
-      try {
-        const res = await api.get<ProjectItem[]>(`/projects?organizationId=${currentOrg.id}`);
-        setProjects(res.data);
-
-        // Preselect project from navigation state or first project
-        const navProjectId = (location.state as { projectId?: string })?.projectId;
-        if (navProjectId && res.data.some((p) => p.id === navProjectId)) {
-          setSelectedProjectId(navProjectId);
-        } else if (res.data.length > 0) {
-          setSelectedProjectId(res.data[0].id);
-        } else {
-          setSelectedProjectId(null);
-          setTasks([]);
-        }
-      } catch (err: unknown) {
-        if (axios.isAxiosError(err) && err.response?.data?.message) {
-          setErrorMsg(String(err.response.data.message));
-        } else {
-          setErrorMsg('Failed to load projects for current tenant.');
-        }
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    void loadProjects();
-  }, [currentOrg?.id]);
-
-  // Sync selected project if clicked from sidebar navigation
-  useEffect(() => {
-    const navProjectId = (location.state as { projectId?: string })?.projectId;
-    if (navProjectId && projects.some((p) => p.id === navProjectId)) {
-      setSelectedProjectId(navProjectId);
-    }
-  }, [location.state, projects]);
+  const projectsQuery = useProjects<ProjectItem>(currentOrg?.id);
+  const projects = projectsQuery.data ?? [];
+  const isLoading = projectsQuery.isLoading;
 
   // Load ALL tasks of the selected project. The priority filter only narrows the displayed rows;
   // budget figures are always computed from the complete task list.
-  useEffect(() => {
-    const loadTasks = async (): Promise<void> => {
-      if (!selectedProjectId) {
-        setTasks([]);
-        return;
-      }
-      try {
-        const res = await api.get<TaskItem[]>(`/tasks?projectId=${selectedProjectId}`);
-        setTasks(res.data);
-      } catch (err: unknown) {
-        if (axios.isAxiosError(err) && err.response?.data?.message) {
-          setErrorMsg(String(err.response.data.message));
-        }
-      }
-    };
+  const tasksQuery = useTasks<TaskItem>(selectedProjectId);
+  const tasks = selectedProjectId ? tasksQuery.data ?? [] : [];
 
-    void loadTasks();
-  }, [selectedProjectId]);
+  const queryErrorMessage = (err: unknown): string | null =>
+    axios.isAxiosError(err) && err.response?.data?.message ? String(err.response.data.message) : null;
+  // A failed project load is always reported; a failed task load only when the server gave a reason
+  const errorMsg = projectsQuery.isError
+    ? queryErrorMessage(projectsQuery.error) ?? 'Failed to load projects for current tenant.'
+    : tasksQuery.isError
+      ? queryErrorMessage(tasksQuery.error)
+      : null;
+
+  // Keep the selection valid for the loaded projects: prefer the project chosen in the sidebar,
+  // otherwise keep the current one, otherwise fall back to the first project.
+  useEffect(() => {
+    const loaded = projectsQuery.data;
+    if (!loaded) return;
+    const navProjectId = (location.state as { projectId?: string } | null)?.projectId;
+    if (navProjectId && loaded.some((p) => p.id === navProjectId)) {
+      setSelectedProjectId(navProjectId);
+    } else if (!loaded.some((p) => p.id === selectedProjectId)) {
+      setSelectedProjectId(loaded.length > 0 ? loaded[0].id : null);
+    }
+  }, [projectsQuery.data, location.state]);
+
+  const invalidateTasks = (): Promise<void> =>
+    queryClient.invalidateQueries({ queryKey: queryKeys.tasks(selectedProjectId) });
+
+  const deleteTask = useMutation({ mutationFn: (id: string) => api.delete(`/tasks/${id}`) });
+  const createTask = useMutation({ mutationFn: (body: Record<string, unknown>) => api.post('/tasks', body) });
+  const updateTask = useMutation({
+    mutationFn: ({ id, body }: { id: string; body: Record<string, unknown> }) => api.patch(`/tasks/${id}`, body),
+  });
 
   const openAddTask = (): void => {
     setDialogError(null);
@@ -162,11 +138,10 @@ export const ProjectDashboardPage: React.FC = () => {
     setDialogError(null);
 
     try {
-      await api.delete(`/tasks/${deletingTask.id}`);
+      await deleteTask.mutateAsync(deletingTask.id);
       closeDeleteTask();
       // Reload the full list so rows and the budget figures reflect the deletion
-      const res = await api.get<TaskItem[]>(`/tasks?projectId=${selectedProjectId}`);
-      setTasks(res.data);
+      await invalidateTasks();
     } catch (err: unknown) {
       setDialogError(describeApiError(err, 'Failed to delete task.'));
     } finally {
@@ -186,7 +161,7 @@ export const ProjectDashboardPage: React.FC = () => {
     setDialogError(null);
 
     try {
-      await api.post('/tasks', {
+      await createTask.mutateAsync({
         title: newTaskTitle.trim(),
         description: newTaskDesc,
         status: newTaskStatus,
@@ -202,9 +177,7 @@ export const ProjectDashboardPage: React.FC = () => {
       setNewTaskPriority('MEDIUM');
       setNewTaskCost('15000.00');
 
-      // Refresh tasks
-      const res = await api.get<TaskItem[]>(`/tasks?projectId=${selectedProjectId}`);
-      setTasks(res.data);
+      await invalidateTasks();
     } catch (err: unknown) {
       setDialogError(describeApiError(err, 'Failed to create task.'));
     } finally {
@@ -234,19 +207,19 @@ export const ProjectDashboardPage: React.FC = () => {
     setDialogError(null);
 
     try {
-      await api.patch(`/tasks/${editingTask.id}`, {
-        title: editTitle.trim(),
-        description: editDesc,
-        status: editStatus,
-        priority: editPriority,
-        estimatedCost: editCost.trim(),
+      await updateTask.mutateAsync({
+        id: editingTask.id,
+        body: {
+          title: editTitle.trim(),
+          description: editDesc,
+          status: editStatus,
+          priority: editPriority,
+          estimatedCost: editCost.trim(),
+        },
       });
 
       closeEditTask();
-
-      // Refresh tasks
-      const res = await api.get<TaskItem[]>(`/tasks?projectId=${selectedProjectId}`);
-      setTasks(res.data);
+      await invalidateTasks();
     } catch (err: unknown) {
       setDialogError(describeApiError(err, 'Failed to update task.'));
     } finally {
