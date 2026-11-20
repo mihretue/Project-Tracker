@@ -102,6 +102,56 @@ describe('View task details', () => {
   });
 });
 
+describe('Pending requests show loading, never an empty state', () => {
+  it('shows the spinner while the tasks request is pending, then the rows', async () => {
+    let release: (v: { data: unknown }) => void = () => undefined;
+    mocks.api.get.mockImplementation(async (url: string) => {
+      if (url.startsWith('/projects')) return { data: [project] };
+      return new Promise((r) => (release = r));
+    });
+    renderPage();
+    // Wait until the tasks request itself is in flight (projects have loaded by then)
+    await waitFor(() => expect(taskCalls()).toBe(1));
+    expect(screen.getByText('Loading project metrics...')).not.toBeNull();
+    expect(screen.queryByText(/No tasks match/)).toBeNull();
+    expect(screen.queryByText(/No projects found/)).toBeNull();
+    expect(screen.queryByText('Project Budget (ETB)')).toBeNull();
+
+    release({ data: ALL_TASKS });
+    await ready();
+    expect(screen.queryByText('Loading project metrics...')).toBeNull();
+  });
+
+  it('opening another project from the sidebar shows the spinner, not "no tasks", until its tasks arrive', async () => {
+    const second = { ...project, id: 'p-2', name: 'Second Project' };
+    let release: (v: { data: unknown }) => void = () => undefined;
+    mocks.api.get.mockImplementation(async (url: string) => {
+      if (url.startsWith('/projects')) return { data: [project, second] };
+      if (url === '/tasks?projectId=p-1') return { data: ALL_TASKS };
+      return new Promise((r) => (release = r));
+    });
+    render(
+      <MemoryRouter initialEntries={[{ pathname: '/projects', state: { projectId: 'p-2' } }]}>
+        <ProjectDashboardPage />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(mocks.api.get.mock.calls.some((c) => c[0] === '/tasks?projectId=p-2')).toBe(true));
+    expect(screen.getByText('Loading project metrics...')).not.toBeNull();
+    expect(screen.queryByText(/No tasks match/)).toBeNull();
+    expect(screen.queryByText('Task h1')).toBeNull();
+
+    release({ data: [{ ...ALL_TASKS[0], id: 'x1', title: 'Second task', projectId: 'p-2' }] });
+    expect(await screen.findByText('Second task')).not.toBeNull();
+  });
+
+  it('shows the spinner while the projects request is pending', async () => {
+    mocks.api.get.mockImplementation(() => new Promise(() => undefined));
+    renderPage();
+    expect(await screen.findByText('Loading project metrics...')).not.toBeNull();
+    expect(screen.queryByText(/No projects found/)).toBeNull();
+  });
+});
+
 describe('Task duration', () => {
   const openAdd = async (): Promise<HTMLElement> => {
     await ready();

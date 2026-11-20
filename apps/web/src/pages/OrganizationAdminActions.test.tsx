@@ -46,7 +46,7 @@ const members = [
     user: { id: 'u-2', email: 'member@abyssinia.test', firstName: 'Mark', lastName: 'Member' },
   },
 ];
-const projects = [
+const projects: Array<{ id: string; name: string; description: string | null; budget: string; currency: string; organizationId: string }> = [
   {
     id: 'p-1',
     name: 'Mobile Banking Platform',
@@ -139,6 +139,27 @@ describe('Organization admin actions: visibility by role', () => {
   });
 });
 
+describe('Pending requests show loading, never an empty state', () => {
+  it('shows loading (not "no members" / "no projects" / zeros) until the data arrives', async () => {
+    let release: (v: { data: unknown }) => void = () => undefined;
+    mocks.api.get.mockImplementation(async (url: string) => {
+      if (url.includes('/members')) return new Promise((r) => (release = r));
+      if (url.startsWith('/projects')) return new Promise(() => undefined);
+      throw new Error(`unexpected GET ${url}`);
+    });
+    renderPage();
+    expect(await screen.findByText('Loading members...')).not.toBeNull();
+    expect(screen.getByText('Loading projects...')).not.toBeNull();
+    expect(screen.queryByText('No members match the current filter.')).toBeNull();
+    expect(screen.queryByText(/No projects in this organization yet/)).toBeNull();
+    expect(screen.getByText('Team Members').nextElementSibling?.textContent).toBe('…');
+
+    release({ data: members });
+    expect(await screen.findByText('Mark Member')).not.toBeNull();
+    expect(screen.queryByText('Loading members...')).toBeNull();
+  });
+});
+
 describe('Sidebar "+" next to Projects', () => {
   it('opens the Create New Project form for an ADMIN, once', async () => {
     renderPage({ openAddProject: true });
@@ -153,6 +174,56 @@ describe('Sidebar "+" next to Projects', () => {
     renderPage({ openAddProject: true });
     await waitForScreen();
     expect(dialogOpen('Create New Project')).toBe(false);
+  });
+});
+
+describe('Edit project description', () => {
+  it('prefills the current description and saves the edited text with the existing update call', async () => {
+    projects[0].description = 'Original scope';
+    try {
+      mocks.api.patch.mockResolvedValue({ data: {} });
+      renderPage();
+      click('Edit project Mobile Banking Platform', await waitForScreen());
+      const dialog = card('Edit Project');
+      const field = within(dialog).getByLabelText('Description') as HTMLTextAreaElement;
+      expect(field.value).toBe('Original scope');
+
+      const loadsBefore = projectCalls().length;
+      fireEvent.change(field, { target: { value: 'Updated scope for phase 2' } });
+      click('Save Changes', within(dialog));
+
+      await waitFor(() => expect(dialogOpen('Edit Project')).toBe(false));
+      expect(mocks.api.patch).toHaveBeenCalledWith('/projects/p-1', {
+        name: 'Mobile Banking Platform',
+        description: 'Updated scope for phase 2',
+        budget: '750000.00',
+      });
+      // The shared projects cache is refreshed, which is what the cards and the sidebar read
+      expect(projectCalls().length).toBeGreaterThan(loadsBefore);
+    } finally {
+      projects[0].description = null;
+    }
+  });
+
+  it('shows an empty field for a project without a description, and a blank value stays blank', async () => {
+    mocks.api.patch.mockResolvedValue({ data: {} });
+    renderPage();
+    click('Edit project Mobile Banking Platform', await waitForScreen());
+    const dialog = card('Edit Project');
+    expect((within(dialog).getByLabelText('Description') as HTMLTextAreaElement).value).toBe('');
+    click('Save Changes', within(dialog));
+    await waitFor(() => expect(mocks.api.patch).toHaveBeenCalledTimes(1));
+    expect(mocks.api.patch.mock.calls[0][1]).toMatchObject({ description: '' });
+  });
+
+  it('still validates the name and budget', async () => {
+    renderPage();
+    click('Edit project Mobile Banking Platform', await waitForScreen());
+    const dialog = card('Edit Project');
+    setField('Project Name', '   ', within(dialog));
+    click('Save Changes', within(dialog));
+    expect(await within(dialog).findByText('Project name is required.')).not.toBeNull();
+    expect(mocks.api.patch).not.toHaveBeenCalled();
   });
 });
 
@@ -172,7 +243,11 @@ describe('Edit project', () => {
     click('Save Changes', within(dialog));
 
     await waitFor(() => expect(dialogOpen('Edit Project')).toBe(false));
-    expect(mocks.api.patch).toHaveBeenCalledWith('/projects/p-1', { name: 'Mobile Banking v2', budget: '800000.50' });
+    expect(mocks.api.patch).toHaveBeenCalledWith('/projects/p-1', {
+      name: 'Mobile Banking v2',
+      description: '',
+      budget: '800000.50',
+    });
     expect(projectCalls().length).toBeGreaterThan(loadsBefore);
   });
 

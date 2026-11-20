@@ -81,7 +81,7 @@ describe('ProjectDashboardPage budget figures vs. the priority filter', () => {
     const expectTotals = (): void => {
       expect(kpi('Estimated Task Cost (ETB)')).toMatch(/571,500\.00/);
       expect(kpi('Remaining Budget (ETB)')).toMatch(/178,500\.00/);
-      expect(kpi('Budget Allocated')).toBe('76.2%');
+      expect(kpi('Estimated Budget Allocation')).toBe('76.2%');
       expect(kpi('Project Budget (ETB)')).toMatch(/750,000\.00/);
     };
     expectTotals();
@@ -119,7 +119,7 @@ describe('ProjectDashboardPage budget figures vs. the priority filter', () => {
     expect(rowCount()).toBe(0);
     expect(screen.getByText(/No tasks found with priority "LOW"/)).not.toBeNull();
     expect(kpi('Estimated Task Cost (ETB)')).toMatch(/250,000\.00/);
-    expect(kpi('Budget Allocated')).toBe('33.3%');
+    expect(kpi('Estimated Budget Allocation')).toBe('33.3%');
   });
 
   it('loads the complete task list once and never asks the server for a filtered subset', async () => {

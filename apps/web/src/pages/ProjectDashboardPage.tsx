@@ -81,7 +81,6 @@ export const ProjectDashboardPage: React.FC = () => {
 
   const projectsQuery = useProjects<ProjectItem>(currentOrg?.id);
   const projects = projectsQuery.data ?? [];
-  const isLoading = projectsQuery.isLoading;
 
   // Load ALL tasks of the selected project. The priority filter only narrows the displayed rows;
   // budget figures are always computed from the complete task list.
@@ -242,6 +241,12 @@ export const ProjectDashboardPage: React.FC = () => {
   };
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId);
+  // Spinner until the page can show real data: projects loaded, one selected, and its tasks loaded.
+  // Without this a pending request would read as "no projects" / "no tasks".
+  const isLoading =
+    projectsQuery.isLoading ||
+    (projects.length > 0 && !selectedProject) ||
+    (!!selectedProject && tasksQuery.isLoading);
   const viewingTask = tasks.find((t) => t.id === viewingTaskId) ?? null;
   const projectBudgetETB = parseFloat(selectedProject?.budget || '0');
   const visibleTasks = priorityFilter === 'ALL' ? tasks : tasks.filter((t) => t.priority === priorityFilter);
@@ -398,7 +403,7 @@ export const ProjectDashboardPage: React.FC = () => {
               caption={remainingBudget >= 0 ? 'Still available' : 'Over budget'}
             />
             <StatCard
-              label="Budget Allocated"
+              label="Estimated Budget Allocation"
               value={`${budgetUtilization}%`}
               caption="Of the project budget"
             />

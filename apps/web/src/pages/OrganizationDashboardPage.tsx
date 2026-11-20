@@ -51,6 +51,9 @@ interface ProjectView {
   tasks?: Array<{ id: string; status?: string; estimatedCost?: string }>;
 }
 
+/** Shown in place of a number while its data is still loading, so a pending request never reads as 0. */
+const LOADING_VALUE = '…';
+
 export const OrganizationDashboardPage: React.FC = () => {
   const { user, currentOrg, addOrganization, refreshOrganizations } = useAuth();
   const location = useLocation();
@@ -61,7 +64,8 @@ export const OrganizationDashboardPage: React.FC = () => {
   const projectsQuery = useProjects<ProjectView>(currentOrg?.id);
   const members = membersQuery.data ?? [];
   const projects = projectsQuery.data ?? [];
-  const isLoadingData = membersQuery.isLoading || projectsQuery.isLoading;
+  const isLoadingMembers = membersQuery.isLoading;
+  const isLoadingData = isLoadingMembers || projectsQuery.isLoading;
   const loadError = membersQuery.error ?? projectsQuery.error;
   const actionError: string | null = loadError
     ? axios.isAxiosError(loadError) && loadError.response?.data?.message
@@ -107,6 +111,7 @@ export const OrganizationDashboardPage: React.FC = () => {
   const [dialogError, setDialogError] = useState<string | null>(null);
   const [editingProject, setEditingProject] = useState<ProjectView | null>(null);
   const [editProjectName, setEditProjectName] = useState('');
+  const [editProjectDescription, setEditProjectDescription] = useState('');
   const [editProjectBudget, setEditProjectBudget] = useState('');
   const [deletingProject, setDeletingProject] = useState<ProjectView | null>(null);
   const [roleTarget, setRoleTarget] = useState<MemberView | null>(null);
@@ -137,6 +142,7 @@ export const OrganizationDashboardPage: React.FC = () => {
   const openEditProject = (p: ProjectView): void => {
     setDialogError(null);
     setEditProjectName(p.name);
+    setEditProjectDescription(p.description ?? '');
     setEditProjectBudget(p.budget);
     setEditingProject(p);
   };
@@ -255,7 +261,11 @@ export const OrganizationDashboardPage: React.FC = () => {
     try {
       await updateProject.mutateAsync({
         id: editingProject.id,
-        body: { name: editProjectName.trim(), budget: editProjectBudget.trim() },
+        body: {
+          name: editProjectName.trim(),
+          description: editProjectDescription,
+          budget: editProjectBudget.trim(),
+        },
       });
       closeEditProject();
       await invalidateProjects();
@@ -511,18 +521,18 @@ export const OrganizationDashboardPage: React.FC = () => {
         />
         <StatCard
           label="Team Members"
-          value={members.length}
-          caption={`${adminCount} Admin \u00b7 ${memberCount} Member`}
+          value={isLoadingMembers ? LOADING_VALUE : members.length}
+          caption={isLoadingMembers ? undefined : `${adminCount} Admin \u00b7 ${memberCount} Member`}
         />
         <StatCard
           label="Total Projects"
-          value={projects.length}
-          caption={`${completedTasks} of ${allTasks.length} tasks completed`}
+          value={projectsQuery.isLoading ? LOADING_VALUE : projects.length}
+          caption={projectsQuery.isLoading ? undefined : `${completedTasks} of ${allTasks.length} tasks completed`}
         />
         <StatCard
           label="Total Budget (ETB)"
-          value={formatETB(totalBudgetETB)}
-          caption={`${formatETB(usedBudgetETB)} utilized (${utilizationPct}%)`}
+          value={projectsQuery.isLoading ? LOADING_VALUE : formatETB(totalBudgetETB)}
+          caption={projectsQuery.isLoading ? undefined : `${formatETB(usedBudgetETB)} allocated (estimated) · ${utilizationPct}% of budget`}
         />
       </div>
 
@@ -578,7 +588,7 @@ export const OrganizationDashboardPage: React.FC = () => {
                   <p className="project-card-desc">{project.description || 'No description provided.'}</p>
 
                   <div className="budget-row">
-                    <span>ETB Budget Tracking</span>
+                    <span>Estimated budget allocation</span>
                     <span className="mono">
                       {formatETB(used)} <span className="budget-total">/ {formatETB(budget)}</span>
                     </span>
@@ -586,7 +596,7 @@ export const OrganizationDashboardPage: React.FC = () => {
                   <div
                     className="progress"
                     role="progressbar"
-                    aria-label={`Budget used for ${project.name}`}
+                    aria-label={`Estimated budget allocation for ${project.name}`}
                     aria-valuemin={0}
                     aria-valuemax={100}
                     aria-valuenow={pct}
@@ -692,7 +702,15 @@ export const OrganizationDashboardPage: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {visibleMembers.length === 0 && (
+              {isLoadingMembers && (
+                <tr>
+                  <td colSpan={isAdmin ? 5 : 4} style={{ textAlign: 'center', color: 'var(--text-secondary)' }} role="status">
+                    <Loader2 className="animate-spin" size={16} style={{ verticalAlign: 'middle', marginRight: '0.4rem' }} />
+                    Loading members...
+                  </td>
+                </tr>
+              )}
+              {!isLoadingMembers && visibleMembers.length === 0 && (
                 <tr>
                   <td colSpan={isAdmin ? 5 : 4} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
                     No members match the current filter.
@@ -859,6 +877,17 @@ export const OrganizationDashboardPage: React.FC = () => {
                   value={editProjectName}
                   onChange={(e) => setEditProjectName(e.target.value)}
                   required
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label" htmlFor="edit-project-description">Description</label>
+                <textarea
+                  id="edit-project-description"
+                  className="form-input"
+                  rows={3}
+                  placeholder="High-level project scope..."
+                  value={editProjectDescription}
+                  onChange={(e) => setEditProjectDescription(e.target.value)}
                 />
               </div>
               <div className="form-group">

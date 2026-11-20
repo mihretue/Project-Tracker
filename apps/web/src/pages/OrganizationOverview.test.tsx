@@ -101,18 +101,21 @@ describe('Organization overview: figures come from real data', () => {
     expect(caption('Team Members')).toBe('1 Admin · 1 Member');
     expect(caption('Total Projects')).toBe('2 of 5 tasks completed');
     // used = 100000 + 117500 + 50000 + 50000 + 12000 = 329,500 of 760,000 (43%)
-    expect(caption('Total Budget (ETB)')).toMatch(/329,500\.00 utilized \(43%\)/);
+    expect(caption('Total Budget (ETB)')).toMatch(/329,500\.00 allocated \(estimated\) · 43% of budget/);
   });
 
   it('project cards show a budget progress bar, tasks done, and Active/Completed status', async () => {
     await renderPage();
-    const bar = screen.getByRole('progressbar', { name: 'Budget used for Mobile Banking Platform' });
+    const bar = screen.getByRole('progressbar', { name: 'Estimated budget allocation for Mobile Banking Platform' });
     expect(bar.getAttribute('aria-valuenow')).toBe('42'); // 317,500 / 750,000 = 42.3%
     expect(screen.getByText('1/4 tasks done')).not.toBeNull();
+    // Task costs are estimates, so nothing is described as spent or utilized
+    expect(screen.queryByText(/utiliz|budget used/i)).toBeNull();
+    expect(screen.getAllByText('Estimated budget allocation').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Active')).toHaveLength(1);
     expect(screen.getAllByText('Completed')).toHaveLength(1);
 
-    const over = screen.getByRole('progressbar', { name: 'Budget used for Finished Work' });
+    const over = screen.getByRole('progressbar', { name: 'Estimated budget allocation for Finished Work' });
     expect(over.getAttribute('aria-valuenow')).toBe('100'); // capped, 12,000 of 10,000
     expect(over.firstElementChild?.className).toMatch(/is-over/);
   });
