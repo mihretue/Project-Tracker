@@ -11,7 +11,7 @@ import { RemoveUserPlatformRole1700000003000 } from '../src/database/migrations/
  *   - AddUserPlatformRole1700000002000    adds users.platformRole (enum, NOT NULL, default 'USER')
  *   - RemoveUserPlatformRole1700000003000 drops it again (platform admins were later removed)
  *
- * Same conventions as migration-upgrade.e2e-spec.ts: scratch databases created for this file and
+ * Same conventions as migration-upgrade-add-task-priority.e2e-spec.ts: scratch databases created for this file and
  * dropped afterwards (also when a test fails), explicit POSTGRES_* variables only (no .env file),
  * and a refusal to run against a hosted host. It never touches the shared E2E database, the
  * development database or Neon.
