@@ -57,6 +57,7 @@ export class TasksService {
       priority: dto.priority || TaskPriority.MEDIUM,
       estimatedCost: formattedCost,
       currency: 'ETB',
+      durationDays: dto.durationDays ?? null,
       projectId: dto.projectId,
     });
 
@@ -157,6 +158,10 @@ export class TasksService {
     }
     if (dto.estimatedCost !== undefined) {
       task.estimatedCost = new Decimal(dto.estimatedCost).toFixed(2);
+    }
+    // undefined = leave unchanged, null = clear it
+    if (dto.durationDays !== undefined) {
+      task.durationDays = dto.durationDays;
     }
 
     return this.taskRepository.save(task);

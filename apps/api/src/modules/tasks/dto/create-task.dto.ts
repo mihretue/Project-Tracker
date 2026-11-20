@@ -1,11 +1,14 @@
 import {
   IsEnum,
+  IsInt,
   IsNotEmpty,
   IsOptional,
   IsString,
   IsUUID,
   Matches,
+  Max,
   MaxLength,
+  Min,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { TaskStatus } from '../../../common/enums/task-status.enum';
@@ -51,6 +54,13 @@ export class CreateTaskDto {
   @IsString()
   @Matches(MONEY_PATTERN, { message: moneyMessage('Estimated cost') })
   estimatedCost: string;
+
+  @ApiPropertyOptional({ example: 14, description: 'Planned duration in whole days (0 to 36500); omit if unknown' })
+  @IsOptional()
+  @IsInt({ message: 'Duration must be a whole number of days' })
+  @Min(0, { message: 'Duration must not be negative' })
+  @Max(36500, { message: 'Duration must be 36500 days or fewer' })
+  durationDays?: number;
 
   @ApiProperty({ example: 'b2c3d4e5-f6a7-8b9c-0d1e-2f3a4b5c6d7e', description: 'Project UUID' })
   @IsUUID('4', { message: 'projectId must be a valid UUID' })

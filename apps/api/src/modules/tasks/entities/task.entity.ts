@@ -56,6 +56,10 @@ export class Task {
   @Column({ type: 'varchar', length: 3, default: 'ETB' })
   currency: string;
 
+  /** Optional planned duration in whole days. NULL means "unknown" (see AddTaskDuration migration). */
+  @Column({ type: 'integer', nullable: true })
+  durationDays: number | null;
+
   @Index()
   @Column({ type: 'uuid' })
   projectId: string;

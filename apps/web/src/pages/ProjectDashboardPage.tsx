@@ -39,6 +39,8 @@ interface TaskItem {
   priority: 'LOW' | 'MEDIUM' | 'HIGH';
   estimatedCost: string;
   currency: string;
+  /** Planned duration in whole days; null when unknown. */
+  durationDays: number | null;
   projectId: string;
 }
 
@@ -63,6 +65,7 @@ export const ProjectDashboardPage: React.FC = () => {
   const [newTaskStatus, setNewTaskStatus] = useState<'TODO' | 'IN_PROGRESS' | 'REVIEW' | 'COMPLETED'>('TODO');
   const [newTaskPriority, setNewTaskPriority] = useState<'LOW' | 'MEDIUM' | 'HIGH'>('MEDIUM');
   const [newTaskCost, setNewTaskCost] = useState('15000.00');
+  const [newTaskDuration, setNewTaskDuration] = useState('');
 
   // Edit task modal state
   const [editingTask, setEditingTask] = useState<TaskItem | null>(null);
@@ -71,6 +74,7 @@ export const ProjectDashboardPage: React.FC = () => {
   const [editStatus, setEditStatus] = useState<'TODO' | 'IN_PROGRESS' | 'REVIEW' | 'COMPLETED'>('TODO');
   const [editPriority, setEditPriority] = useState<'LOW' | 'MEDIUM' | 'HIGH'>('MEDIUM');
   const [editCost, setEditCost] = useState('');
+  const [editDuration, setEditDuration] = useState('');
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -155,7 +159,7 @@ export const ProjectDashboardPage: React.FC = () => {
   const handleCreateTask = async (e: FormEvent): Promise<void> => {
     e.preventDefault();
     if (!selectedProjectId || isSubmitting) return;
-    const invalid = validateTaskInput(newTaskTitle, newTaskCost);
+    const invalid = validateTaskInput(newTaskTitle, newTaskCost, newTaskDuration);
     if (invalid) {
       setDialogError(invalid);
       return;
@@ -170,6 +174,8 @@ export const ProjectDashboardPage: React.FC = () => {
         status: newTaskStatus,
         priority: newTaskPriority,
         estimatedCost: newTaskCost.trim(),
+        // Optional: omitted when left blank, so the task stays "unknown" instead of getting a made-up value
+        ...(newTaskDuration.trim() !== '' && { durationDays: Number(newTaskDuration) }),
         projectId: selectedProjectId,
       });
 
@@ -179,6 +185,7 @@ export const ProjectDashboardPage: React.FC = () => {
       setNewTaskStatus('TODO');
       setNewTaskPriority('MEDIUM');
       setNewTaskCost('15000.00');
+      setNewTaskDuration('');
 
       await invalidateTasks();
     } catch (err: unknown) {
@@ -196,12 +203,13 @@ export const ProjectDashboardPage: React.FC = () => {
     setEditStatus(task.status);
     setEditPriority(task.priority);
     setEditCost(task.estimatedCost);
+    setEditDuration(task.durationDays === null || task.durationDays === undefined ? '' : String(task.durationDays));
   };
 
   const handleUpdateTask = async (e: FormEvent): Promise<void> => {
     e.preventDefault();
     if (!editingTask || !selectedProjectId || isSubmitting) return;
-    const invalid = validateTaskInput(editTitle, editCost);
+    const invalid = validateTaskInput(editTitle, editCost, editDuration);
     if (invalid) {
       setDialogError(invalid);
       return;
@@ -218,6 +226,8 @@ export const ProjectDashboardPage: React.FC = () => {
           status: editStatus,
           priority: editPriority,
           estimatedCost: editCost.trim(),
+          // Blank clears the duration (null); a number sets it
+          durationDays: editDuration.trim() === '' ? null : Number(editDuration),
         },
       });
 
@@ -247,6 +257,9 @@ export const ProjectDashboardPage: React.FC = () => {
       minimumFractionDigits: 2,
     }).format(val);
   };
+
+  const formatDuration = (days: number | null | undefined): string =>
+    days === null || days === undefined ? '—' : `${days} ${days === 1 ? 'day' : 'days'}`;
 
   const getStatusBadge = (status: TaskItem['status']): JSX.Element => {
     switch (status) {
@@ -453,6 +466,7 @@ export const ProjectDashboardPage: React.FC = () => {
                       <th>Priority</th>
                       <th>Status</th>
                       <th>Estimated Cost (ETB)</th>
+                      <th>Duration</th>
                       <th>Actions</th>
                     </tr>
                   </thead>
@@ -474,6 +488,7 @@ export const ProjectDashboardPage: React.FC = () => {
                             {formatETB(parseFloat(task.estimatedCost || '0'))}
                           </span>
                         </td>
+                        <td>{formatDuration(task.durationDays)}</td>
                         <td>
                           <button
                             type="button"
@@ -593,6 +608,20 @@ export const ProjectDashboardPage: React.FC = () => {
                 />
               </div>
 
+              <div className="form-group">
+                <label className="form-label" htmlFor="new-task-duration">Duration in days (optional)</label>
+                <input
+                  id="new-task-duration"
+                  type="number"
+                  min={0}
+                  step={1}
+                  className="form-input"
+                  placeholder="e.g. 14"
+                  value={newTaskDuration}
+                  onChange={(e) => setNewTaskDuration(e.target.value)}
+                />
+              </div>
+
               <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.25rem' }}>
                 <button
                   type="button"
@@ -631,6 +660,10 @@ export const ProjectDashboardPage: React.FC = () => {
               <div>
                 <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginBottom: '0.25rem' }}>Estimated cost</div>
                 <span className="badge badge-etb">{formatETB(parseFloat(viewingTask.estimatedCost || '0'))}</span>
+              </div>
+              <div>
+                <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginBottom: '0.25rem' }}>Duration</div>
+                <strong>{formatDuration(viewingTask.durationDays)}</strong>
               </div>
               <div>
                 <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginBottom: '0.25rem' }}>Share of project budget</div>
@@ -730,6 +763,20 @@ export const ProjectDashboardPage: React.FC = () => {
                   value={editCost}
                   onChange={(e) => setEditCost(e.target.value)}
                   required
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label" htmlFor="edit-task-duration">Duration in days (optional)</label>
+                <input
+                  id="edit-task-duration"
+                  type="number"
+                  min={0}
+                  step={1}
+                  className="form-input"
+                  placeholder="Leave blank if unknown"
+                  value={editDuration}
+                  onChange={(e) => setEditDuration(e.target.value)}
                 />
               </div>
 

@@ -1,3 +1,5 @@
+const MAX_DURATION_DAYS = 36500;
+
 /** Mirrors the API's money rule: NUMERIC(14,2), i.e. up to 12 digits before and 2 after the decimal point. */
 const MONEY = /^\d{1,12}(\.\d{1,2})?$/;
 
@@ -12,11 +14,16 @@ export function validateProjectInput(name: string, budget: string): string | nul
 }
 
 /** Client-side check for task title and ETB estimated cost; the server remains the authority. */
-export function validateTaskInput(title: string, cost: string): string | null {
+export function validateTaskInput(title: string, cost: string, durationDays = ''): string | null {
   if (title.trim() === '') return 'Task title is required.';
   if (title.trim().length > 250) return 'Task title must be 250 characters or fewer.';
   if (!MONEY.test(cost.trim())) {
     return 'Estimated cost must be a non-negative amount with at most 12 digits and 2 decimal places (e.g. 25000.00).';
+  }
+  // Duration is optional; when given it must be a whole number of days (the API allows 0 to 36500)
+  const duration = durationDays.trim();
+  if (duration !== '' && (!/^\d+$/.test(duration) || Number(duration) > MAX_DURATION_DAYS)) {
+    return `Duration must be a whole number of days between 0 and ${MAX_DURATION_DAYS}.`;
   }
   return null;
 }

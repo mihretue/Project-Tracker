@@ -49,4 +49,22 @@ describe('CreateTaskDto', () => {
     const priorityError = errors.find((e) => e.property === 'priority');
     expect(priorityError).toBeDefined();
   });
+
+  it.each([
+    ['accepts a whole number of days', 14, false],
+    ['accepts zero', 0, false],
+    ['rejects a negative number', -1, true],
+    ['rejects a fraction', 2.5, true],
+    ['rejects text', 'two weeks', true],
+    ['rejects an absurdly large value', 1000000, true],
+  ])('durationDays: %s', async (_label, durationDays, shouldFail) => {
+    const dto = plainToInstance(CreateTaskDto, {
+      title: 'With duration',
+      estimatedCost: '5000.00',
+      projectId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+      durationDays,
+    });
+    const errors = await validate(dto);
+    expect(errors.some((e) => e.property === 'durationDays')).toBe(shouldFail);
+  });
 });

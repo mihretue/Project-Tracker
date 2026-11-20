@@ -37,6 +37,7 @@ const task = (id: string, priority: 'LOW' | 'MEDIUM' | 'HIGH', cost: string) => 
   priority,
   estimatedCost: cost,
   currency: 'ETB',
+  durationDays: null as number | null,
   projectId: 'p-1',
 });
 const ALL_TASKS = [task('h1', 'HIGH', '400000.00'), task('m1', 'MEDIUM', '100000.00')];
@@ -98,6 +99,69 @@ describe('View task details', () => {
     fireEvent.click(within(screen.getByRole('dialog', { name: 'Task details' })).getByRole('button', { name: 'Edit' }));
     expect(screen.queryByRole('dialog', { name: 'Task details' })).toBeNull();
     expect(dialogOpen('Edit Task Deliverable')).toBe(true);
+  });
+});
+
+describe('Task duration', () => {
+  const openAdd = async (): Promise<HTMLElement> => {
+    await ready();
+    fireEvent.click(screen.getByRole('button', { name: /add task/i }));
+    return card('Create Deliverable Task');
+  };
+
+  it('shows the duration in the table (a dash when unknown) and in the detail view', async () => {
+    tasksOnServer = [{ ...ALL_TASKS[0], durationDays: 14 }, ALL_TASKS[1]];
+    renderPage();
+    await ready();
+    expect(screen.getByText('14 days')).not.toBeNull();
+    expect(screen.getAllByText('—').length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('button', { name: 'View task Task h1' }));
+    expect(within(screen.getByRole('dialog', { name: 'Task details' })).getByText('14 days')).not.toBeNull();
+  });
+
+  it('create: sends durationDays as a number only when filled in', async () => {
+    mocks.api.post.mockResolvedValue({ data: {} });
+    renderPage();
+    const dialog = await openAdd();
+    fireEvent.change(within(dialog).getByPlaceholderText('Database indexing & optimization'), { target: { value: 'Timed' } });
+    fireEvent.change(within(dialog).getByLabelText('Duration in days (optional)'), { target: { value: '21' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add Task' }));
+    await waitFor(() => expect(mocks.api.post).toHaveBeenCalledTimes(1));
+    expect(mocks.api.post.mock.calls[0][1]).toMatchObject({ title: 'Timed', durationDays: 21 });
+  });
+
+  it('create: omits durationDays when left blank', async () => {
+    mocks.api.post.mockResolvedValue({ data: {} });
+    renderPage();
+    const dialog = await openAdd();
+    fireEvent.change(within(dialog).getByPlaceholderText('Database indexing & optimization'), { target: { value: 'Untimed' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add Task' }));
+    await waitFor(() => expect(mocks.api.post).toHaveBeenCalledTimes(1));
+    expect(mocks.api.post.mock.calls[0][1]).not.toHaveProperty('durationDays');
+  });
+
+  it('does not submit a fractional duration (the number field blocks it natively)', async () => {
+    renderPage();
+    const dialog = await openAdd();
+    fireEvent.change(within(dialog).getByPlaceholderText('Database indexing & optimization'), { target: { value: 'Bad' } });
+    fireEvent.change(within(dialog).getByLabelText('Duration in days (optional)'), { target: { value: '2.5' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add Task' }));
+    expect(mocks.api.post).not.toHaveBeenCalled();
+  });
+
+  it('edit: prefills the saved duration and clearing it sends null', async () => {
+    tasksOnServer = [{ ...ALL_TASKS[0], durationDays: 14 }, ALL_TASKS[1]];
+    mocks.api.patch.mockResolvedValue({ data: {} });
+    renderPage();
+    await ready();
+    fireEvent.click(screen.getAllByRole('button', { name: /^edit$/i })[0]);
+    const dialog = card('Edit Task Deliverable');
+    const input = within(dialog).getByLabelText('Duration in days (optional)') as HTMLInputElement;
+    expect(input.value).toBe('14');
+    fireEvent.change(input, { target: { value: '' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Changes' }));
+    await waitFor(() => expect(mocks.api.patch).toHaveBeenCalledTimes(1));
+    expect(mocks.api.patch.mock.calls[0][1]).toMatchObject({ durationDays: null });
   });
 });
 
@@ -261,6 +325,7 @@ describe('Task dialogs: errors stay inside the dialog', () => {
       status: 'TODO',
       priority: 'HIGH',
       estimatedCost: '400000.00',
+      durationDays: null, // blank duration stays "unknown"
     });
     expect(taskCalls()).toBe(loadsBefore + 1);
   });

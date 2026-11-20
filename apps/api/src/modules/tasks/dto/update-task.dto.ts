@@ -1,10 +1,13 @@
 import {
   IsEnum,
+  IsInt,
   IsNotEmpty,
   IsOptional,
   IsString,
   Matches,
+  Max,
   MaxLength,
+  Min,
 } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { TaskStatus } from '../../../common/enums/task-status.enum';
@@ -46,4 +49,15 @@ export class UpdateTaskDto {
   @IsString()
   @Matches(MONEY_PATTERN, { message: moneyMessage('Estimated cost') })
   estimatedCost?: string;
+
+  @ApiPropertyOptional({
+    example: 14,
+    nullable: true,
+    description: 'Planned duration in whole days (0 to 36500); send null to clear it',
+  })
+  @IsOptional()
+  @IsInt({ message: 'Duration must be a whole number of days' })
+  @Min(0, { message: 'Duration must not be negative' })
+  @Max(36500, { message: 'Duration must be 36500 days or fewer' })
+  durationDays?: number | null;
 }
