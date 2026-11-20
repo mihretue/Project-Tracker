@@ -106,8 +106,12 @@ column are untouched; only the priority values are lost.
   the new schema. If a deploy fails, roll back the application first and keep the additive column;
   revert the schema only if it is itself the problem, and take a Neon backup or branch first,
   because reverting discards the priority values.
-- **Verification:** migrations are applied from scratch to a throwaway database in CI on every push,
-  and the E2E tests run against that schema before anything is deployed.
+- **Verification:** two paths run in CI on every push, before anything is deployed. (A) All
+  migrations are applied from scratch to a throwaway database, and the E2E tests run on that schema.
+  (B) `npm run test:migration` builds the pre-priority schema in a scratch database, inserts legacy
+  tasks, applies only the priority migration, and checks that every task is still there unchanged
+  and now `MEDIUM`, that other tables are untouched, that the column is `NOT NULL` with the right
+  default and index, and that `down()` removes the column, index and type while keeping the tasks.
 
 ## Where tenant isolation could leak
 
@@ -160,6 +164,7 @@ npm run typecheck        # API and web
 npm run test:api         # API unit tests
 npm run test:web         # frontend tests
 npm run test:e2e         # API end-to-end tests (see below)
+npm run test:migration   # priority migration upgrade + rollback on a populated scratch database
 npm run build            # production builds
 ```
 

@@ -17,6 +17,7 @@
     "test": "npm run test:api && npm run test:web",
     "test:api": "npm --workspace=@tenant-tracker/api run test",
     "test:e2e": "npm --workspace=@tenant-tracker/api run test:e2e",
+    "test:migration": "npm --workspace=@tenant-tracker/api run test:migration",
     "typecheck": "npm --workspace=@tenant-tracker/api run typecheck && npm --workspace=@tenant-tracker/web run typecheck",
     "docker:db:up": "docker compose up -d postgres",
     "docker:db:down": "docker compose down",
