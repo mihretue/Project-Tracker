@@ -88,7 +88,15 @@ independent permissions across organizations.
 
 ## Migrations and rollback
 
-**Task priority migration** (`1700000001000-AddTaskPriority`) adds `LOW / MEDIUM / HIGH` priorities:
+The migration history currently contains these five migrations, in application order:
+
+1. `1700000000000-InitialSchema` — creates the initial database schema.
+2. `1700000001000-AddTaskPriority` — adds task priorities (`LOW / MEDIUM / HIGH`).
+3. `1700000002000-AddUserPlatformRole` — adds the user platform-role field.
+4. `1700000003000-RemoveUserPlatformRole` — removes the user platform-role field.
+5. `1700000004000-AddTaskDuration` — adds task duration.
+
+**Task priority migration** (`1700000001000-AddTaskPriority`) is the migration required for Part 3:
 
 1. Creates the `task_priority_enum` type.
 2. Adds `tasks.priority` as `NOT NULL DEFAULT 'MEDIUM'`. In PostgreSQL, adding a column with a
@@ -100,18 +108,22 @@ independent permissions across organizations.
 column are untouched; only the priority values are lost.
 
 - **Apply:** `npm run migration:run` (CI runs it against the live database before deploying).
-- **Roll back:** `npm run migration:revert`. It undoes only the *latest* migration, one per run, so
-  it must be run once per migration that was added after priority.
-- **Compatibility:** the column has a default, so the previous app version keeps working against
-  the new schema. If a deploy fails, roll back the application first and keep the additive column;
-  revert the schema only if it is itself the problem, and take a Neon backup or branch first,
-  because reverting discards the priority values.
-- **Verification:** two paths run in CI on every push, before anything is deployed. (A) All
-  migrations are applied from scratch to a throwaway database, and the E2E tests run on that schema.
-  (B) `npm run test:migration` builds the pre-priority schema in a scratch database, inserts legacy
-  tasks, applies only the priority migration, and checks that every task is still there unchanged
-  and now `MEDIUM`, that other tables are untouched, that the column is `NOT NULL` with the right
-  default and index, and that `down()` removes the column, index and type while keeping the tasks.
+- **Roll back:** `npm run migration:revert` undoes only the *latest* applied migration. Run it once
+  per migration, in reverse application order, until reaching the migration you intend to revert.
+  Reverting the priority migration also removes the priority values.
+- **Compatibility:** the `priority` column has a default, so the previous app version keeps working
+  against the new schema. If a deploy fails, roll back the application first and keep the additive
+  column; revert the schema only if it is itself the problem, and take a Neon backup or branch first.
+- **Verification:** CI verifies migrations before deployment in two ways. (A) All migrations are
+  applied from scratch to a throwaway database, and the E2E tests run against that schema.
+  (B) `npm run test:migration` runs three migration-upgrade test suites (22 tests) against scratch
+  databases, covering task-priority, task-duration and platform-role migration upgrade/rollback
+  behavior. The priority suite builds the pre-priority schema, inserts legacy tasks, applies only
+  the priority migration, and verifies that existing tasks remain intact with `MEDIUM` priority,
+  other tables are untouched, the column has the expected `NOT NULL` constraint and default, and
+  the index exists. It also verifies that `down()` removes the priority column, index and enum type
+  while preserving the tasks. The other suites verify their respective migration upgrades and
+  rollbacks.
 
 ## Where tenant isolation could leak
 
@@ -164,7 +176,7 @@ npm run typecheck        # API and web
 npm run test:api         # API unit tests
 npm run test:web         # frontend tests
 npm run test:e2e         # API end-to-end tests (see below)
-npm run test:migration   # priority migration upgrade + rollback on a populated scratch database
+npm run test:migration   # priority, duration and platform-role migration upgrade/rollback tests (22 tests)
 npm run build            # production builds
 ```
 
@@ -173,17 +185,26 @@ The E2E tests need their own database, `tenant_project_tracker_test`, with migra
 
 ```bash
 # macOS / Linux / Git Bash
-POSTGRES_DB=tenant_project_tracker_test npm run migration:run
-POSTGRES_DB=tenant_project_tracker_test npm run test:e2e
+POSTGRES_HOST=localhost POSTGRES_SSL=false POSTGRES_DB=tenant_project_tracker_test npm run migration:run
+POSTGRES_HOST=localhost POSTGRES_SSL=false POSTGRES_DB=tenant_project_tracker_test npm run test:e2e
 ```
 
 ```powershell
 # Windows PowerShell
+$env:POSTGRES_HOST = "localhost"
+$env:POSTGRES_SSL = "false"
 $env:POSTGRES_DB = "tenant_project_tracker_test"
 npm run migration:run
 npm run test:e2e
-Remove-Item Env:POSTGRES_DB    # so later commands use your normal database again
+
+# Clear the overrides when finished, so later commands use your normal configuration.
+Remove-Item Env:POSTGRES_HOST, Env:POSTGRES_SSL, Env:POSTGRES_DB
 ```
+
+The API test safety guard requires an explicitly configured local host and rejects SSL for this
+local test database. Set `POSTGRES_USER`, `POSTGRES_PASSWORD` and (if needed) `POSTGRES_PORT` in
+`apps/api/.env` for your local PostgreSQL instance. Do not point these test commands at a hosted
+or production database.
 
 ## CI/CD
 
@@ -193,6 +214,18 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push and pull request:
 2. **web** job: typecheck, tests, build.
 3. **deploy** job: only on pushes to `main`, and only if both jobs passed. It applies pending
    migrations to the live database, then triggers the Render deploy hooks.
+
+### Change-based deployment
+
+The pipeline uses change detection to identify which parts of the monorepo have been modified:
+
+- API changes trigger API checks and deployment.
+- Frontend changes trigger frontend checks and deployment.
+- Changes to both trigger both pipelines and deployments.
+- Documentation-only or unrelated changes skip unnecessary application deployments.
+
+This keeps deployments focused on affected applications while ensuring that required checks pass
+before deployment.
 
 Required GitHub secrets: `RENDER_API_DEPLOY_HOOK_URL`, `RENDER_WEB_DEPLOY_HOOK_URL`,
 `LIVE_POSTGRES_HOST`, `LIVE_POSTGRES_USER`, `LIVE_POSTGRES_PASSWORD`, `LIVE_POSTGRES_DB`
